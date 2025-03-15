@@ -308,3 +308,7 @@ data['Predicted_Stability'] = y_pred_all[:, 2]
 # Sort by a specific property (e.g., binding affinity)
 best_mirnas = data.sort_values(by='Predicted_Binding_Affinity', ascending=False)
 print(best_mirnas.head())  # Show top 5 miRNAs with highest binding affinity
+
+# Save the trained models
+torch.save(final_cnn_model.state_dict(), 'cnn_model.pth')
+torch.save(final_lstm_model.state_dict(), 'lstm_model.pth')
