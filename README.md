@@ -56,6 +56,7 @@ Follow these steps to set up the project locally and run the pipeline.
 
 ## Project Structure (Focus on Version 2)
 
+
 miRNA-RNA-Deep-Learning-Model/
 ├── codes/
 │   ├── Version 1/                   # Older or alternative code versions (not the primary focus for current usage)
@@ -72,29 +73,31 @@ miRNA-RNA-Deep-Learning-Model/
 │   └── lstm_model.pth               # Older PyTorch LSTM model (from Version 1, moved here for organization).
 ├── Notes/                           # Contains miscellaneous project notes and research findings.
 ├── .git/                            # Git repository files (hidden).
-├── .gitattributes                   # Git LFS configuration (if any files are tracked by LFS).
 ├── .gitignore                       # Specifies files/directories ignored by Git (e.g., dataset/, virtual environments).
 └── README.md                        # This README file.
+
 
 * **Note on `.pth` files:** `cnn_model.pth` and `lstm_model.pth` are older PyTorch models from previous development versions (likely `Version 1`). They have been moved into the `models/` directory for better organization but are not used by the current `Version 2` TensorFlow/Keras workflow. Models saved by `G_model_building.py` will have a `.keras` extension.
 
 ## Usage (Using `codes/Version 2`)
 Follow these steps in the specified order to run the full pipeline using the latest scripts in `codes/Version 2`.
 
-**Important Note on Data Storage:** The `dataset/` folder is listed in `.gitignore` and is not tracked by this repository. You will need to manage your raw and processed data locally outside of Git's tracking.
+**Important Note on Data Storage:** The `dataset/` folder is listed in `.gitignore` and is not tracked by this repository. **The raw and processed datasets are too large to be included directly in this Git repository. Please download them from the following OneDrive link and place them in your local `dataset/` directory:**
+
+**[YOUR_ONEDRIVE_LINK_TO_DATASET_HERE]** *(Replace this with your actual OneDrive link!)*
 
 ### 1. Obtain and Structure Raw Data
 
-Your raw biological data files (miRNA sequences, RRE sequences, REV protein sequences, conservation scores, binding affinity data, etc.) are external to this repository.
+Once you have downloaded the dataset from OneDrive, ensure your local directory structure matches what the scripts expect:
 
 * **Create the Data Directories:**
     * Create a `dataset` folder in your project root (it will be ignored by Git).
-    * Inside `dataset/`, create `Raw Data/` for your initial raw files and `Processed_for_DL/` where intermediate NumPy arrays (`.npy` files) will be saved.
+    * Inside `dataset/`, you should have `Raw Data/` (if the raw data is provided separately) and `Processed_for_DL/` (where intermediate NumPy arrays will be placed, or if the processed data is already on OneDrive).
     ```bash
-    mkdir -p dataset/Raw\ Data
-    mkdir -p dataset/Processed_for_DL
+    mkdir -p dataset/Raw\ Data # Create if raw data will be processed by scripts
+    mkdir -p dataset/Processed_for_DL # Create if not already downloaded
     ```
-* **Place your raw data files:** Populate the `dataset/Raw Data/` directory with your raw files. Ensure their names and formats match what your data preparation scripts expect.
+* **Place the downloaded data:** Extract the contents of the OneDrive download into your `dataset/` folder, ensuring `Raw Data/` and `Processed_for_DL/` are populated as needed.
 * **Optional: Convert FASTA files:** If your raw sequences are not in standard FASTA format, you might use the utility script:
     ```bash
     python codes/Version\ 2/1.\ fa\ to\ fasta\ converstion.py
