@@ -58,22 +58,41 @@ Follow these steps to set up the project locally and run the pipeline.
 
 miRNA-RNA-Deep-Learning-Model/
 ├── codes/
-│   ├── Version 1/                  # Older or alternative code versions (not the primary focus for current usage)
-│   └── Version 2/                  # Primary and most up-to-date code version
+│   ├── Version 1/                    # Older or alternative code versions (not the primary focus for current usage)
+│   └── Version 2/                    # Primary and most up-to-date code version
 │       ├── 1. dataset_preparation.py # comprehensive raw data preprocessing and numerical feature generation.
 │       ├── 2. deep_learning_data_preparation.py # Likely involved in preparing data specifically for DL model input (e.g., X_train_*.npy).
-│       ├── 3. model_building.py    # Main script for defining, training, and evaluating the deep learning model.
+│       ├── 3. model_building.py      # Main script for defining, training, and evaluating the deep learning model.
 │       ├── 4. predict_on_new_data.py # Script for loading a trained model and making predictions on new, unseen data.
 │       ├── 5. analysis_and_plotting.py # For generating analysis reports (e.g., classification report, confusion matrix).
-│       └── 6. present graph.py     # Script for generating and displaying various plots (ROC, PR, training history).
-├── models/                         # Directory intended for saving trained Keras models (.keras files).
-│   ├── cnn_model.pth               # Older PyTorch CNN model (from Version 1, moved here for organization).
-│   ├── lstm_model.pth              # Older PyTorch LSTM model (from Version 1, moved here for organization).
+│       └── 6. present graph.py       # Script for generating and displaying various plots (ROC, PR, training history).
+├── Prepared Dataset/                 # NEW FOLDER: Contains raw or initially prepared datasets from '1. dataset_preparation.py'
+│   ├── mirna_data.csv                # Example: raw miRNA data CSV
+│   ├── prepared_miRNA_RRE_dataset.csv # Example: combined and prepared dataset
+│   └── prepared_miRNA_dataset.csv    # Example: prepared miRNA-only dataset
+├── Processed_for_DL/                 # NEW FOLDER: Contains numerically processed data (Numpy arrays) ready for deep learning models, output from '2. deep_learning_data_preparation.py'
+│   ├── X_test_mirna_seq.npy          # Example: processed test data for miRNA sequences
+│   ├── X_test_mirna_struct.npy       # Example: processed test data for miRNA structures
+│   ├── X_test_numerical.npy          # Example: processed test data for numerical features
+│   ├── X_test_rev_seq.npy            # Example: processed test data for reverse sequences
+│   ├── X_test_rre_seq.npy            # Example: processed test data for RRE sequences
+│   ├── X_train_mirna_seq.npy         # Example: processed training data for miRNA sequences
+│   ├── X_train_mirna_struct.npy      # Example: processed training data for miRNA structures
+│   ├── X_train_numerical.npy         # Example: processed training data for numerical features
+│   ├── X_train_rev_seq.npy           # Example: processed training data for reverse sequences
+│   ├── X_train_rre_seq.npy           # Example: processed training data for RRE sequences
+│   ├── minmax_scaler.pkl             # Example: saved scaler object
+│   ├── y_test.npy                    # Example: test labels
+│   └── y_train.npy                   # Example: training labels
+├── models/                           # Directory intended for saving trained Keras models (.keras files).
+│   ├── cnn_model.pth                 # Older PyTorch CNN model (from Version 1, moved here for organization).
+│   ├── lstm_model.pth                # Older PyTorch LSTM model (from Version 1, moved here for organization).
 │   └── miRNA_RRE_REV_prediction_model.keras # Main trained TensorFlow/Keras model.
-├── Notes/                          # Contains miscellaneous project notes and research findings.
-├── .git/                           # Git repository files (hidden).
-├── .gitignore                      # Specifies files/directories ignored by Git (e.g., dataset/, virtual environments).
-└── README.md                       # This README file.
+├── Notes/                            # Contains miscellaneous project notes and research findings.
+│
+├── .git/                             # Git repository files (hidden).
+├── .gitignore                        # Specifies files/directories ignored by Git (e.g., dataset/, virtual environments).
+└── README.md                         # This README file.
 
 
 * **Note on `.pth` files:** `cnn_model.pth` and `lstm_model.pth` are older PyTorch models from previous development versions (likely `Version 1`). They have been moved into the `models/` directory for better organization but are not used by the current `Version 2` TensorFlow/Keras workflow. Models saved by `3. model_building.py` will have a `.keras` extension.
