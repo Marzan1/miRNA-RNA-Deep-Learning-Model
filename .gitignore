@@ -14,5 +14,8 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
+# Project Data (ignored)
+dataset/ # <<< Add this line if you want to ignore it
+
 # IDE files (e.g., VS Code)
 .vscode/
