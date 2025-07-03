@@ -1,0 +1,25 @@
+# Virtual Environments
+venv_python313/
+venv_tf/
+venv_wsl/
+.venv/
+env/
+.Python/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# IDE files (e.g., VS Code)
+.vscode/
+
+# Large model files (exclude from regular Git)
+cnn_model.pth
+lstm_model.pth
+
+# EXCLUDE THE DATASET ENTIRELY
+dataset/
