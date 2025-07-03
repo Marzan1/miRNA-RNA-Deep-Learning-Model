@@ -1,6 +1,6 @@
 # Virtual Environments
 venv_python313/
-venv_tf/
+venv_python129/
 venv_wsl/
 .venv/
 env/
@@ -16,7 +16,3 @@ Thumbs.db
 
 # IDE files (e.g., VS Code)
 .vscode/
-
-# Large model files (exclude from regular Git)
-cnn_model.pth
-lstm_model.pth
