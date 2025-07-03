@@ -20,6 +20,3 @@ Thumbs.db
 # Large model files (exclude from regular Git)
 cnn_model.pth
 lstm_model.pth
-
-# EXCLUDE THE DATASET ENTIRELY
-dataset/
