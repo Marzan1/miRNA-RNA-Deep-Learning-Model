@@ -56,35 +56,35 @@ Follow these steps to set up the project locally and run the pipeline.
 
 ## Project Structure (Focus on Version 2)
 
-
 miRNA-RNA-Deep-Learning-Model/
 ├── codes/
-│   ├── Version 1/                   # Older or alternative code versions (not the primary focus for current usage)
-│   └── Version 2/                   # Primary and most up-to-date code version
-│       ├── 1. fa to fasta converstion.py # Utility script for FASTA format conversion.
-│       ├── G_dataset_preparation_8.py # Latest script for comprehensive raw data preprocessing and numerical feature generation.
-│       ├── G_deep_learning_data_preparation.py # Likely involved in preparing data specifically for DL model input (e.g., X_train_*.npy).
-│       ├── G_model_building.py      # Main script for defining, training, and evaluating the deep learning model.
-│       ├── G_predict_on_new_data.py # Script for loading a trained model and making predictions on new, unseen data.
-│       ├── G_analysis_and_plotting.py # For generating analysis reports (e.g., classification report, confusion matrix).
-│       └── G_present graph.py       # Script for generating and displaying various plots (ROC, PR, training history).
-├── models/                          # Directory intended for saving trained Keras models (.keras files).
-│   ├── cnn_model.pth                # Older PyTorch CNN model (from Version 1, moved here for organization).
-│   └── lstm_model.pth               # Older PyTorch LSTM model (from Version 1, moved here for organization).
-├── Notes/                           # Contains miscellaneous project notes and research findings.
-├── .git/                            # Git repository files (hidden).
-├── .gitignore                       # Specifies files/directories ignored by Git (e.g., dataset/, virtual environments).
-└── README.md                        # This README file.
+│   ├── Version 1/                  # Older or alternative code versions (not the primary focus for current usage)
+│   └── Version 2/                  # Primary and most up-to-date code version
+│       ├── 1. dataset_preparation.py # comprehensive raw data preprocessing and numerical feature generation.
+│       ├── 2. deep_learning_data_preparation.py # Likely involved in preparing data specifically for DL model input (e.g., X_train_*.npy).
+│       ├── 3. model_building.py    # Main script for defining, training, and evaluating the deep learning model.
+│       ├── 4. predict_on_new_data.py # Script for loading a trained model and making predictions on new, unseen data.
+│       ├── 5. analysis_and_plotting.py # For generating analysis reports (e.g., classification report, confusion matrix).
+│       └── 6. present graph.py     # Script for generating and displaying various plots (ROC, PR, training history).
+├── models/                         # Directory intended for saving trained Keras models (.keras files).
+│   ├── cnn_model.pth               # Older PyTorch CNN model (from Version 1, moved here for organization).
+│   ├── lstm_model.pth              # Older PyTorch LSTM model (from Version 1, moved here for organization).
+│   └── miRNA_RRE_REV_prediction_model.keras # Main trained TensorFlow/Keras model.
+├── Notes/                          # Contains miscellaneous project notes and research findings.
+├── .git/                           # Git repository files (hidden).
+├── .gitignore                      # Specifies files/directories ignored by Git (e.g., dataset/, virtual environments).
+└── README.md                       # This README file.
 
 
-* **Note on `.pth` files:** `cnn_model.pth` and `lstm_model.pth` are older PyTorch models from previous development versions (likely `Version 1`). They have been moved into the `models/` directory for better organization but are not used by the current `Version 2` TensorFlow/Keras workflow. Models saved by `G_model_building.py` will have a `.keras` extension.
+* **Note on `.pth` files:** `cnn_model.pth` and `lstm_model.pth` are older PyTorch models from previous development versions (likely `Version 1`). They have been moved into the `models/` directory for better organization but are not used by the current `Version 2` TensorFlow/Keras workflow. Models saved by `3. model_building.py` will have a `.keras` extension.
 
 ## Usage (Using `codes/Version 2`)
 Follow these steps in the specified order to run the full pipeline using the latest scripts in `codes/Version 2`.
 
-**Important Note on Data Storage:** The `dataset/` folder is listed in `.gitignore` and is not tracked by this repository. **The raw and processed datasets are too large to be included directly in this Git repository. Please download them from the following OneDrive link and place them in your local `dataset/` directory:**
+**Important Note on Data Storage:** The `dataset/` folder is listed in `.gitignore` and is not tracked by this repository. The raw and processed datasets are too large to be included directly in this Git repository. **Please download them from the following OneDrive link and place them in your local `dataset/` directory:**
 
-**[YOUR_ONEDRIVE_LINK_TO_DATASET_HERE]** *(Replace this with your actual OneDrive link!)*
+**[Download the Dataset from OneDrive here](https://1drv.ms/f/c/61c8f613658b59de/Enm_X_4FpYlPlOaPvTg6OhIBKfSV2rwEhxXTRPcO7TIC4Q?e=xPSVqw)**.
+*This OneDrive folder contains both the `Raw Data/` and `Processed_for_DL/` subdirectories. Please download its contents and place them directly into your local `dataset/` folder.*
 
 ### 1. Obtain and Structure Raw Data
 
@@ -98,10 +98,7 @@ Once you have downloaded the dataset from OneDrive, ensure your local directory 
     mkdir -p dataset/Processed_for_DL # Create if not already downloaded
     ```
 * **Place the downloaded data:** Extract the contents of the OneDrive download into your `dataset/` folder, ensuring `Raw Data/` and `Processed_for_DL/` are populated as needed.
-* **Optional: Convert FASTA files:** If your raw sequences are not in standard FASTA format, you might use the utility script:
-    ```bash
-    python codes/Version\ 2/1.\ fa\ to\ fasta\ converstion.py
-    ```
+* **Optional: Convert FASTA files:** If your raw sequences are not in standard FASTA format, you might use a utility script if you have one available, or convert them manually. (Note: The `1. fa to fasta converstion.py` script is no longer explicitly listed in your `Version 2` structure).
 
 ### 2. Prepare the Dataset
 
@@ -109,14 +106,14 @@ This step processes your raw data into the necessary NumPy arrays (`.npy` files)
 
 * **Addressing Data Bias (Crucial for Model Performance):**
     A common challenge in biological interaction datasets is class imbalance, where positive interactions (label = 1) might significantly outnumber negative interactions (label = 0). To train a robust and meaningful classification model, it is essential to balance the dataset by ensuring a sufficient number of label = 0 instances.
-    **Before running `G_dataset_preparation_8.py`, you must review and potentially modify it to implement a strategy for generating negative samples.** This could involve:
+    **Before running `1. dataset_preparation.py`, you must review and potentially modify it to implement a strategy for generating negative samples.** This could involve:
     * **Generating Random Non-Target Sequences:** For existing miRNAs, create random RNA sequences (of appropriate length and base composition) that are highly unlikely to be true RRE targets. Pair these with miRNAs and assign label = 0.
     * **Shuffling Known Targets:** Take existing RRE target sequences and randomly shuffle their bases to destroy binding motifs, then pair them with miRNAs and assign label = 0.
     * **Incorporating Known Non-Interactions:** If you have access to databases or literature that explicitly identify non-interacting miRNA-RRE pairs, integrate them into your dataset.
 
 * **Run the data preparation script:**
     ```bash
-    python codes/Version\ 2/G_dataset_preparation_8.py
+    python codes/Version\ 2/1.\ dataset_preparation.py
     ```
     This script will generate `X_train_*.npy`, `y_train.npy`, `X_test_*.npy`, `y_test.npy`, and `minmax_scaler.pkl` within the `dataset/Processed_for_DL/` directory.
 
@@ -125,10 +122,10 @@ This step processes your raw data into the necessary NumPy arrays (`.npy` files)
 This step defines the deep learning model architecture, trains it using the prepared dataset, evaluates its performance, and saves the trained model.
 
 * **Before running:**
-    * Review `codes/Version 2/G_model_building.py` to understand the multi-input model architecture, training parameters (epochs, batch size, learning rate), and evaluation metrics. Adjust as needed.
+    * Review `codes/Version 2/3. model_building.py` to understand the multi-input model architecture, training parameters (epochs, batch size, learning rate), and evaluation metrics. Adjust as needed.
 * **Run the model building and training script:**
     ```bash
-    python codes/Version\ 2/G_model_building.py
+    python codes/Version\ 2/3.\ model_building.py
     ```
     This script will:
     * Load the processed `.npy` data from `dataset/Processed_for_DL/`.
@@ -140,14 +137,14 @@ This step defines the deep learning model architecture, trains it using the prep
 
 ### 4. Make Predictions on New Data
 
-After a model has been trained and saved, you can use `G_predict_on_new_data.py` to make predictions on individual new sequences.
+After a model has been trained and saved, you can use `4. predict_on_new_data.py` to make predictions on individual new sequences.
 
 * **Before running:**
     * Ensure a trained model (`miRNA_RRE_REV_prediction_model.keras`) exists in your `models/` directory.
-    * Review `codes/Version 2/G_predict_on_new_data.py`. This script includes example new sequences. You will need to modify the `new_mirna_seq_X`, `new_rre_seq_X`, and `new_rev_seq_X` variables within this script to provide your actual sequences for prediction.
+    * Review `codes/Version 2/4. predict_on_new_data.py`. This script includes example new sequences. You will need to modify the `new_mirna_seq_X`, `new_rre_seq_X`, and `new_rev_seq_X` variables within this script to provide your actual sequences for prediction.
 * **Run the prediction script:**
     ```bash
-    python codes/Version\ 2/G_predict_on_new_data.py
+    python codes/Version\ 2/4.\ predict_on_new_data.py
     ```
     This script will:
     * Load the saved `MinMaxScaler` and the trained `miRNA_RRE_REV_prediction_model.keras`.
@@ -156,15 +153,15 @@ After a model has been trained and saved, you can use `G_predict_on_new_data.py`
 
 ### 5. Analyze Results and Generate Plots
 
-The `G_present graph.py` script can be used to generate various diagnostic plots for model performance visualization.
+The `6. present graph.py` script can be used to generate various diagnostic plots for model performance visualization.
 
 * **Important Note on Plots (DEMO_MODE):**
-    The `codes/Version 2/G_present graph.py` script includes a `DEMO_MODE` flag.
+    The `codes/Version 2/6. present graph.py` script includes a `DEMO_MODE` flag.
     * If `DEMO_MODE = True` (default in the script): The script will generate synthetic `y_test` labels and `y_pred_proba` values that represent both 0 and 1 classes. This allows for the generation of ROC curves, Precision-Recall curves, and training history plots even if your actual dataset is highly imbalanced. These plots are for demonstration purposes ONLY and do NOT reflect the true performance of your model on an imbalanced dataset. They are useful for presentation but should not be used for scientific conclusions until your data bias is fully addressed.
     * If `DEMO_MODE = False`: The script will attempt to use your actual test data and real training history. If your `prepared_miRNA_RRE_dataset.csv` (or the underlying data used to create `y_test.npy`) still contains only a single class (e.g., all label = 1), the ROC and Precision-Recall plots will likely fail or produce misleading results due to the absence of both classes.
 * **Run the analysis script:**
     ```bash
-    python codes/Version\ 2/G_present\ graph.py
+    python codes/Version\ 2/6.\ present\ graph.py
     ```
     This script will:
     * If `DEMO_MODE` is True (or if your real data is balanced), it will generate and display:
@@ -179,7 +176,7 @@ The `G_present graph.py` script can be used to generate various diagnostic plots
 Key configurable parameters, such as directory paths, file names, maximum sequence lengths, and affinity thresholds, are defined as constants at the top of each Python script in `codes/Version 2/`. Please review and modify these constants as per your specific project setup and data requirements before running the scripts.
 
 ## Dataset Information
-The project is designed to integrate various features for each miRNA-RRE-REV interaction pair. The data preparation scripts (e.g., `G_dataset_preparation_8.py`) expect raw input data that, when processed, can yield the following features for the deep learning model:
+The project is designed to integrate various features for each miRNA-RRE-REV interaction pair. The data preparation scripts (e.g., `1. dataset_preparation.py`) expect raw input data that, when processed, can yield the following features for the deep learning model:
 
 * `mirna_id`: Identifier for the miRNA.
 * `sequence`: miRNA sequence (RNA).
@@ -199,8 +196,8 @@ The project is designed to integrate various features for each miRNA-RRE-REV int
 The deep learning model is a sophisticated multi-input architecture implemented using **TensorFlow/Keras**. It is designed to handle and learn from diverse input data types simultaneously:
 
 * **Scalar & Structural Features:** These numerical inputs are fed into dedicated dense (fully connected) layers for initial processing.
-* **Sequence Data (miRNA, RRE, REV):** Raw string sequences are expected to be pre-processed into a numerical representation (e.g., one-hot encoded) before being fed into specialized neural network layers such as Convolutional Neural Networks (CNNs) for capturing local patterns (as seen in `G_model_building.py`).
-* **Categorical Region:** While not explicitly seen in the `G_model_building.py` snippet provided, the overall project description suggests categorical features might be handled, typically via embedding layers.
+* **Sequence Data (miRNA, RRE, REV):** Raw string sequences are expected to be pre-processed into a numerical representation (e.g., one-hot encoded) before being fed into specialized neural network layers such as Convolutional Neural Networks (CNNs) for capturing local patterns (as seen in `3. model_building.py`).
+* **Categorical Region:** While not explicitly seen in the `3. model_building.py` snippet provided, the overall project description suggests categorical features might be handled, typically via embedding layers.
 The outputs from these parallel processing branches are concatenated into a single feature vector, which is then fed into a series of final dense layers with activation functions leading to a binary classification output (predicting the likelihood of interaction) using a sigmoid activation.
 
 ## Addressing Data Bias (Current State & Ongoing Work)
@@ -208,7 +205,7 @@ As highlighted in the "Prepare the Dataset" section, the problem of class imbala
 
 **Current Approach:**
 * The pipeline facilitates processing existing raw data and setting an affinity threshold for labeling.
-* For immediate visualization needs, `G_present graph.py` offers a `DEMO_MODE` to generate synthetic balanced data for plots, allowing for visual analysis even with an imbalanced real dataset.
+* For immediate visualization needs, `6. present graph.py` offers a `DEMO_MODE` to generate synthetic balanced data for plots, allowing for visual analysis even with an imbalanced real dataset.
 
 **Ongoing & Future Work for Bias Mitigation:**
 * **Robust Negative Sample Generation:** This remains the most critical area. Future work will focus on refining and implementing robust methods to systematically generate realistic negative (non-interacting) samples directly within the data preparation phase.
@@ -218,7 +215,7 @@ As highlighted in the "Prepare the Dataset" section, the problem of class imbala
 ## Development Versions
 This repository contains two primary code versions within the `codes/` directory:
 * `Version 1/`: Represents an earlier stage of development, containing scripts prefixed with `P_`.
-* `Version 2/`: Represents the most recent and active development branch of the project, containing scripts prefixed with `G_`. All usage instructions in this `README` refer to the `Version 2` scripts.
+* `Version 2/`: Represents the most recent and active development branch of the project, containing updated scripts (now prefixed with numbers). All usage instructions in this `README` refer to the `Version 2` scripts.
 
 ## Future Work
 * Refine negative sample generation strategy for more realistic non-interactions.
