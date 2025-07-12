@@ -168,7 +168,6 @@ if len(unique_labels) >= 2: # Only plot if both classes are present
     plt.title('Precision-Recall Curve')
     plt.legend(loc="lower left")
     plt.grid(True)
-    
     plt.tight_layout()
     plt.savefig(os.path.join(MODEL_SAVE_PATH, 'model_performance_curves.png'))
     plt.show() # Show this plot after saving
