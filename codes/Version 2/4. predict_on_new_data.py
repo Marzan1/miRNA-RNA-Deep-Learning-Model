@@ -10,6 +10,7 @@ import subprocess
 from sklearn.preprocessing import MinMaxScaler # For loading the scaler
 import joblib # For loading the scaler
 
+
 # --- Configuration Constants (must match training constants) ---
 DATASET_ROOT_FOLDER = r"E:\my_deep_learning_project\dataset" 
 MODEL_SAVE_PATH = r'E:\my_deep_learning_project\models'
