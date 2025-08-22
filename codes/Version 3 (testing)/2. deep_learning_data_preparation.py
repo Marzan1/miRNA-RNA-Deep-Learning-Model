@@ -1,216 +1,175 @@
-# E:\my_deep_learning_project\codes\Gemini_deep_learning_data_preparation.py
-
+# E:\my_deep_learning_project\codes\Gemini_deep_learning_data_preparation.py (Revised)
 import os
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.preprocessing.sequence import pad_sequences
-import joblib # Import joblib for saving the scaler
+import joblib
+import json
 
-# --- Configuration Constants (aligned with your updated preparation script) ---
-DATASET_ROOT_FOLDER = r"E:\my_deep_learning_project\dataset"
+# --- Configuration Constants ---
+DATASET_ROOT_FOLDER = r"E:\1. miRNA-RNA-Deep-Learning-Model\dataset"
 PREPARED_DATASET_FOLDER_NAME = "Prepared Dataset"
 PREPARED_DATASET_FILENAME = "prepared_miRNA_RRE_dataset.csv"
 PREPARED_DATASET_PATH = os.path.join(DATASET_ROOT_FOLDER, PREPARED_DATASET_FOLDER_NAME, PREPARED_DATASET_FILENAME)
 
 # Folder to save processed data for Deep Learning models
 OUTPUT_DL_FOLDER = os.path.join(DATASET_ROOT_FOLDER, "Processed_for_DL")
-
-# Ensure output directory exists
 os.makedirs(OUTPUT_DL_FOLDER, exist_ok=True)
 
-
-# Constants for sequence processing (aligned with your updated preparation script)
-MAX_MIRNA_SEQUENCE_LENGTH = 80
-MAX_RRE_SEQUENCE_LENGTH = 150
-MAX_REV_SEQUENCE_LENGTH = 200
+# Constants for sequence processing
+MAX_MIRNA_LEN = 80
+MAX_RRE_LEN = 150
+MAX_REV_LEN = 200
 
 # Nucleotide mapping for one-hot encoding
 NUCLEOTIDE_MAP = {'A': 0, 'U': 1, 'G': 2, 'C': 3, 'N': 4}
-N_NUCLEOTIDES = len(NUCLEOTIDE_MAP) # 5 (A, U, G, C, N for padding/unknown)
+N_NUCLEOTIDES = len(NUCLEOTIDE_MAP)
 
-# --- Helper Functions for Deep Learning Preparation ---
-
-def one_hot_encode_sequence(sequence, max_len, nucleotide_map, n_nucleotides):
-    """
-    One-hot encodes a nucleotide sequence and pads/truncates it.
-    'N' is used for padding or unknown nucleotides.
-    """
-    encoded_seq = np.zeros((max_len, n_nucleotides), dtype=np.float32)
-    # Ensure sequence is treated as string; handle potential None/NaN
-    if sequence is None or not isinstance(sequence, str):
-        sequence = "" # Treat as empty sequence
+# --- Helper Functions ---
+def one_hot_encode_sequence(sequence, max_len):
+    """One-hot encodes a nucleotide sequence and pads/truncates it."""
+    encoded_seq = np.zeros((max_len, N_NUCLEOTIDES), dtype=np.float32)
     
+    # Handle missing sequence data gracefully
+    if not isinstance(sequence, str):
+        sequence = ""
+        
     for i, char in enumerate(sequence[:max_len]):
-        char_upper = char.upper() # Standardize case
-        if char_upper in nucleotide_map:
-            encoded_seq[i, nucleotide_map[char_upper]] = 1
-        else: # Handle unexpected characters by treating them as 'N'
-            encoded_seq[i, nucleotide_map['N']] = 1
+        # Default to 'N' if character is not in the map
+        nucleotide_index = NUCLEOTIDE_MAP.get(char.upper(), 4) 
+        encoded_seq[i, nucleotide_index] = 1
+        
     return encoded_seq
 
 def process_and_save_for_dl(df):
     """
-    Processes the prepared DataFrame for deep learning input,
-    splits into train/test, and saves the data and scaler.
+    Processes the DataFrame for deep learning input, splits it, and saves the data.
     """
     if df.empty:
-        print("Input DataFrame is empty. Cannot proceed with deep learning data preparation.")
-        return None, None, None, None
+        print("Input DataFrame is empty. Aborting data preparation.")
+        return
 
     # --- 1. Feature Selection and Type Conversion ---
-    # Numerical features that need scaling and will be used as input
-    # 'affinity' is included here assuming it's a continuous feature input,
-    # and 'label' is the binary target derived from it.
-    numerical_features_to_scale = [
-        'gc_content',
-        'dg',
-        'conservation',
-        'affinity' 
-        # 'rev_rre_interaction_score' # Uncomment if you calculate and add this later
-    ]
+    
+    # CRITICAL FIX: 'affinity' is directly related to the 'label'. Including it as a feature
+    # is data leakage. We remove it from the model's inputs.
+    numerical_features = ['gc_content', 'dg', 'conservation']
+    
+    print(f"Using numerical features for model input: {numerical_features}")
 
-    # Convert structure_vector from string representation of list to actual list of ints
-    df['structure_vector'] = df['structure_vector'].apply(
-        lambda x: np.array(eval(x), dtype=np.int32) if isinstance(x, str) else np.array(x, dtype=np.int32)
-    )
+    # Convert structure_vector from JSON string to a list of numbers
+    df['structure_vector'] = df['structure_vector'].apply(json.loads)
 
-    # Handle potential NaNs in numerical columns (e.g., from RNAfold errors or missing affinity)
-    for col in numerical_features_to_scale:
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0) # Ensure numeric, then fill NaNs
+    # Clean numerical columns
+    for col in numerical_features:
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # --- 2. Sequence One-Hot Encoding and Padding ---
-    print("One-hot encoding miRNA sequences...")
-    miRNA_sequences_encoded = np.array([
-        one_hot_encode_sequence(seq, MAX_MIRNA_SEQUENCE_LENGTH, NUCLEOTIDE_MAP, N_NUCLEOTIDES)
-        for seq in df['sequence']
-    ])
-    print(f"Shape of encoded miRNA sequences: {miRNA_sequences_encoded.shape}")
-
-    print("One-hot encoding RRE sequences...")
-    RRE_sequences_encoded = np.array([
-        one_hot_encode_sequence(seq, MAX_RRE_SEQUENCE_LENGTH, NUCLEOTIDE_MAP, N_NUCLEOTIDES)
-        for seq in df['rre_sequence']
-    ])
-    print(f"Shape of encoded RRE sequences: {RRE_sequences_encoded.shape}")
-
-    print("One-hot encoding REV sequences...")
-    REV_sequences_encoded = np.array([
-        one_hot_encode_sequence(seq, MAX_REV_SEQUENCE_LENGTH, NUCLEOTIDE_MAP, N_NUCLEOTIDES)
-        for seq in df['rev_sequence']
-    ])
-    print(f"Shape of encoded REV sequences: {REV_sequences_encoded.shape}")
+    # --- 2. Sequence One-Hot Encoding ---
+    print("\nStep 1: One-hot encoding all sequences...")
+    X_mirna_seq = np.array([one_hot_encode_sequence(seq, MAX_MIRNA_LEN) for seq in df['sequence']])
+    X_rre_seq = np.array([one_hot_encode_sequence(seq, MAX_RRE_LEN) for seq in df['rre_sequence']])
+    X_rev_seq = np.array([one_hot_encode_sequence(seq, MAX_REV_LEN) for seq in df['rev_sequence']])
+    print(f"  miRNA sequences shape: {X_mirna_seq.shape}")
+    print(f"  RRE sequences shape: {X_rre_seq.shape}")
+    print(f"  REV sequences shape: {X_rev_seq.shape}")
 
     # --- 3. Structure Vector Padding ---
-    print("Padding miRNA structure vectors...")
-    structure_vectors_padded = pad_sequences(
-        df['structure_vector'].tolist(), # .tolist() is important if elements are numpy arrays
-        maxlen=MAX_MIRNA_SEQUENCE_LENGTH,
-        dtype='int32',
-        padding='post', # Pad with 0s at the end
-        value=0
+    print("\nStep 2: Padding miRNA structure vectors...")
+    X_structure = pad_sequences(
+        df['structure_vector'].tolist(), 
+        maxlen=MAX_MIRNA_LEN, 
+        padding='post', 
+        dtype='float32'
     )
-    # Reshape to (num_samples, max_len, 1) for Conv1D input
-    structure_vectors_padded = np.expand_dims(structure_vectors_padded, axis=-1)
-    print(f"Shape of padded structure vectors: {structure_vectors_padded.shape}")
+    # Reshape for Conv1D input: (samples, timesteps, features)
+    X_structure = np.expand_dims(X_structure, axis=-1)
+    print(f"  Padded structure vectors shape: {X_structure.shape}")
 
     # --- 4. Numerical Feature Scaling ---
-    print("Scaling numerical features...")
+    print("\nStep 3: Scaling numerical features...")
     scaler = MinMaxScaler()
-    scaled_numerical_features = scaler.fit_transform(df[numerical_features_to_scale])
-    print(f"Shape of scaled numerical features: {scaled_numerical_features.shape}")
+    X_numerical = scaler.fit_transform(df[numerical_features])
+    print(f"  Scaled numerical features shape: {X_numerical.shape}")
     
-    # Save the fitted scaler for future use (e.g., for new predictions)
+    # Save the scaler for predicting on new data later
     scaler_filepath = os.path.join(OUTPUT_DL_FOLDER, 'minmax_scaler.pkl')
     joblib.dump(scaler, scaler_filepath)
-    print(f"MinMaxScaler saved to: {scaler_filepath}")
+    print(f"  Scaler saved to: {scaler_filepath}")
 
-    # --- 5. Prepare Labels (Target Variable) ---
-    labels = df['label'].values
-    print(f"Shape of labels: {labels.shape}")
+    # --- 5. Prepare Labels ---
+    y = df['label'].values
+    print(f"\nStep 4: Preparing labels (shape: {y.shape})...")
 
     # --- 6. Split Data into Training and Test Sets ---
-    print("Splitting data into training and testing sets...")
+    print("\nStep 5: Splitting data into training (80%) and testing (20%) sets...")
     
-    # Create a dummy array for splitting that represents all samples
-    dummy_x = np.arange(len(df)) 
+    # Create an array of indices to split all datasets consistently
+    indices = np.arange(len(df))
     
-    # Stratify by 'label' if your target variable is imbalanced (highly recommended for classification)
-    X_train_idx, X_test_idx, y_train, y_test = train_test_split(
-        dummy_x, labels, test_size=0.2, random_state=42, stratify=labels 
+    # Stratify by 'label' to ensure both train and test sets have a similar class distribution
+    train_indices, test_indices = train_test_split(
+        indices, test_size=0.2, random_state=42, stratify=y
     )
 
-    # --- Class Distribution Check (CRUCIAL for debugging and understanding splits) ---
-    print("\n--- Class Distribution after Splitting ---")
-    unique_train, counts_train = np.unique(y_train, return_counts=True)
-    print(f"Training set class distribution: {dict(zip(unique_train, counts_train))}")
-    
-    unique_test, counts_test = np.unique(y_test, return_counts=True)
-    print(f"Test set class distribution: {dict(zip(unique_test, counts_test))}")
-    # If any class count is 0 in either set, especially test, it's a problem.
-
-    # Extract respective portions for each input type using the generated indices
+    # Use the indices to create the final dictionaries for the model
     X_train = {
-        'mirna_sequence_input': miRNA_sequences_encoded[X_train_idx],
-        'rre_sequence_input': RRE_sequences_encoded[X_train_idx],
-        'mirna_structure_input': structure_vectors_padded[X_train_idx],
-        'numerical_features_input': scaled_numerical_features[X_train_idx],
-        'rev_sequence_input': REV_sequences_encoded[X_train_idx]
+        'mirna_sequence_input': X_mirna_seq[train_indices],
+        'rre_sequence_input': X_rre_seq[train_indices],
+        'rev_sequence_input': X_rev_seq[train_indices],
+        'mirna_structure_input': X_structure[train_indices],
+        'numerical_features_input': X_numerical[train_indices]
     }
-    
-    X_test = {
-        'mirna_sequence_input': miRNA_sequences_encoded[X_test_idx],
-        'rre_sequence_input': RRE_sequences_encoded[X_test_idx],
-        'mirna_structure_input': structure_vectors_padded[X_test_idx],
-        'numerical_features_input': scaled_numerical_features[X_test_idx],
-        'rev_sequence_input': REV_sequences_encoded[X_test_idx]
-    }
-    
-    print(f"Training set size: {len(y_train)}")
-    print(f"Test set size: {len(y_test)}")
-    
-    # --- 7. Save Processed Data for DL ---
-    print(f"Saving processed data to {OUTPUT_DL_FOLDER}...")
+    y_train = y[train_indices]
 
-    # Saving training data
-    np.save(os.path.join(OUTPUT_DL_FOLDER, 'X_train_mirna_seq.npy'), X_train['mirna_sequence_input'])
-    np.save(os.path.join(OUTPUT_DL_FOLDER, 'X_train_rre_seq.npy'), X_train['rre_sequence_input'])
-    np.save(os.path.join(OUTPUT_DL_FOLDER, 'X_train_mirna_struct.npy'), X_train['mirna_structure_input'])
-    np.save(os.path.join(OUTPUT_DL_FOLDER, 'X_train_numerical.npy'), X_train['numerical_features_input'])
-    np.save(os.path.join(OUTPUT_DL_FOLDER, 'X_train_rev_seq.npy'), X_train['rev_sequence_input'])
+    X_test = {
+        'mirna_sequence_input': X_mirna_seq[test_indices],
+        'rre_sequence_input': X_rre_seq[test_indices],
+        'rev_sequence_input': X_rev_seq[test_indices],
+        'mirna_structure_input': X_structure[test_indices],
+        'numerical_features_input': X_numerical[test_indices]
+    }
+    y_test = y[test_indices]
+    
+    print(f"  Training set size: {len(y_train)}")
+    print(f"  Test set size: {len(y_test)}")
+    print(f"  Training class distribution: {dict(zip(*np.unique(y_train, return_counts=True)))}")
+    print(f"  Test class distribution: {dict(zip(*np.unique(y_test, return_counts=True)))}")
+
+    # --- 7. Save Processed Data for DL ---
+    print(f"\nStep 6: Saving processed data to '{OUTPUT_DL_FOLDER}'...")
+    
+    # Save training data
+    for key, data in X_train.items():
+        np.save(os.path.join(OUTPUT_DL_FOLDER, f'X_train_{key}.npy'), data)
     np.save(os.path.join(OUTPUT_DL_FOLDER, 'y_train.npy'), y_train)
 
-    # Saving test data
-    np.save(os.path.join(OUTPUT_DL_FOLDER, 'X_test_mirna_seq.npy'), X_test['mirna_sequence_input'])
-    np.save(os.path.join(OUTPUT_DL_FOLDER, 'X_test_rre_seq.npy'), X_test['rre_sequence_input'])
-    np.save(os.path.join(OUTPUT_DL_FOLDER, 'X_test_mirna_struct.npy'), X_test['mirna_structure_input'])
-    np.save(os.path.join(OUTPUT_DL_FOLDER, 'X_test_numerical.npy'), X_test['numerical_features_input'])
-    np.save(os.path.join(OUTPUT_DL_FOLDER, 'X_test_rev_seq.npy'), X_test['rev_sequence_input'])
+    # Save test data
+    for key, data in X_test.items():
+        np.save(os.path.join(OUTPUT_DL_FOLDER, f'X_test_{key}.npy'), data)
     np.save(os.path.join(OUTPUT_DL_FOLDER, 'y_test.npy'), y_test)
     
-    print(f"All processed data saved to {OUTPUT_DL_FOLDER}")
-    
-    return X_train, X_test, y_train, y_test
+    print("  All files saved successfully.")
 
 # --- Main Execution ---
 if __name__ == "__main__":
     print(f"Loading prepared dataset from: {PREPARED_DATASET_PATH}")
     if os.path.exists(PREPARED_DATASET_PATH):
-        prepared_df = pd.read_csv(PREPARED_DATASET_PATH)
-        print(f"Prepared dataset loaded. Shape: {prepared_df.shape}")
-        
-        # Display columns and a sample to verify
-        print("Columns in prepared dataset:", prepared_df.columns.tolist())
-        print("Sample of 'sequence' and 'rev_sequence' before processing:")
-        print(prepared_df[['sequence', 'rev_sequence']].head())
-
-        X_train, X_test, y_train, y_test = process_and_save_for_dl(prepared_df)
-        
-        if X_train is not None:
-            print("\nDeep learning data preparation complete. Ready for model building!")
-        else:
-            print("\nDeep learning data preparation failed. Check earlier warnings/errors.")
+        try:
+            prepared_df = pd.read_csv(PREPARED_DATASET_PATH)
+            print(f"Prepared dataset loaded. Shape: {prepared_df.shape}")
+            
+            if prepared_df.shape[0] > 0:
+                process_and_save_for_dl(prepared_df)
+                print("\nDeep learning data preparation complete. Ready for model building!")
+            else:
+                print("\nWarning: The prepared dataset is empty. Cannot proceed.")
+                
+        except Exception as e:
+            print(f"\nAn error occurred while processing the CSV file: {e}")
+            print("Please check if the CSV file is valid and not corrupted.")
+            
     else:
-        print(f"Error: Prepared dataset not found at {PREPARED_DATASET_PATH}.")
-        print("Please run the dataset_preparation.py script first to generate the dataset.")
+        print(f"\nError: Prepared dataset not found at '{PREPARED_DATASET_PATH}'.")
+        print("Please run the `1. dataset_preparation.py` script first to generate the dataset.")
