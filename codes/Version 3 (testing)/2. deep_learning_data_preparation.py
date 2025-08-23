@@ -1,4 +1,4 @@
-# E:\my_deep_learning_project\codes\Gemini_deep_learning_data_preparation.py (Revised)
+# 2. deep_learning_data_preparation.py (Enhanced Research-Grade Version)
 import os
 import pandas as pd
 import numpy as np
@@ -7,169 +7,168 @@ from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 import joblib
 import json
+import time
 
-# --- Configuration Constants ---
+# --- Configuration ---
 DATASET_ROOT_FOLDER = r"E:\1. miRNA-RNA-Deep-Learning-Model\dataset"
-PREPARED_DATASET_FOLDER_NAME = "Prepared Dataset"
-PREPARED_DATASET_FILENAME = "prepared_miRNA_RRE_dataset.csv"
+PREPARED_DATASET_FOLDER_NAME = "prepared_dataset"
+PREPARED_DATASET_FILENAME = "Prepared_Dataset.csv"
 PREPARED_DATASET_PATH = os.path.join(DATASET_ROOT_FOLDER, PREPARED_DATASET_FOLDER_NAME, PREPARED_DATASET_FILENAME)
-
-# Folder to save processed data for Deep Learning models
-OUTPUT_DL_FOLDER = os.path.join(DATASET_ROOT_FOLDER, "Processed_for_DL")
+OUTPUT_DL_FOLDER = os.path.join(DATASET_ROOT_FOLDER, "processed_for_dl")
 os.makedirs(OUTPUT_DL_FOLDER, exist_ok=True)
 
-# Constants for sequence processing
-MAX_MIRNA_LEN = 80
-MAX_RRE_LEN = 150
-MAX_REV_LEN = 200
-
-# Nucleotide mapping for one-hot encoding
+# --- Constants ---
+CHUNK_SIZE = 50000
+MAX_MIRNA_LEN, MAX_RRE_LEN, MAX_REV_LEN = 80, 150, 200
 NUCLEOTIDE_MAP = {'A': 0, 'U': 1, 'G': 2, 'C': 3, 'N': 4}
 N_NUCLEOTIDES = len(NUCLEOTIDE_MAP)
+NUMERICAL_FEATURES = ['gc_content', 'dg', 'conservation']
+SEQUENCE_FEATURES = ['sequence', 'rre_sequence', 'rev_sequence']
+STRUCTURE_FEATURE = 'structure_vector'
+LABEL_FEATURE = 'label'
+EXPECTED_COLUMNS = NUMERICAL_FEATURES + SEQUENCE_FEATURES + [STRUCTURE_FEATURE, LABEL_FEATURE]
 
 # --- Helper Functions ---
 def one_hot_encode_sequence(sequence, max_len):
-    """One-hot encodes a nucleotide sequence and pads/truncates it."""
     encoded_seq = np.zeros((max_len, N_NUCLEOTIDES), dtype=np.float32)
-    
-    # Handle missing sequence data gracefully
-    if not isinstance(sequence, str):
-        sequence = ""
-        
+    if not isinstance(sequence, str): sequence = ""
     for i, char in enumerate(sequence[:max_len]):
-        # Default to 'N' if character is not in the map
-        nucleotide_index = NUCLEOTIDE_MAP.get(char.upper(), 4) 
-        encoded_seq[i, nucleotide_index] = 1
-        
+        encoded_seq[i, NUCLEOTIDE_MAP.get(char.upper(), 4)] = 1
     return encoded_seq
 
-def process_and_save_for_dl(df):
-    """
-    Processes the DataFrame for deep learning input, splits it, and saves the data.
-    """
-    if df.empty:
-        print("Input DataFrame is empty. Aborting data preparation.")
+def validate_chunk_columns(chunk_columns):
+    """Checks if all required columns are in the chunk."""
+    missing_cols = [col for col in EXPECTED_COLUMNS if col not in chunk_columns]
+    if missing_cols:
+        raise ValueError(f"CSV is missing required columns: {missing_cols}")
+
+# --- Main Processing Function ---
+def main():
+    start_time = time.time()
+    print("--- Starting Enhanced Data Preparation for Deep Learning ---")
+    
+    if not os.path.exists(PREPARED_DATASET_PATH):
+        print(f"\nError: Prepared dataset not found at '{PREPARED_DATASET_PATH}'.")
         return
 
-    # --- 1. Feature Selection and Type Conversion ---
-    
-    # CRITICAL FIX: 'affinity' is directly related to the 'label'. Including it as a feature
-    # is data leakage. We remove it from the model's inputs.
-    numerical_features = ['gc_content', 'dg', 'conservation']
-    
-    print(f"Using numerical features for model input: {numerical_features}")
-
-    # Convert structure_vector from JSON string to a list of numbers
-    df['structure_vector'] = df['structure_vector'].apply(json.loads)
-
-    # Clean numerical columns
-    for col in numerical_features:
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-
-    # --- 2. Sequence One-Hot Encoding ---
-    print("\nStep 1: One-hot encoding all sequences...")
-    X_mirna_seq = np.array([one_hot_encode_sequence(seq, MAX_MIRNA_LEN) for seq in df['sequence']])
-    X_rre_seq = np.array([one_hot_encode_sequence(seq, MAX_RRE_LEN) for seq in df['rre_sequence']])
-    X_rev_seq = np.array([one_hot_encode_sequence(seq, MAX_REV_LEN) for seq in df['rev_sequence']])
-    print(f"  miRNA sequences shape: {X_mirna_seq.shape}")
-    print(f"  RRE sequences shape: {X_rre_seq.shape}")
-    print(f"  REV sequences shape: {X_rev_seq.shape}")
-
-    # --- 3. Structure Vector Padding ---
-    print("\nStep 2: Padding miRNA structure vectors...")
-    X_structure = pad_sequences(
-        df['structure_vector'].tolist(), 
-        maxlen=MAX_MIRNA_LEN, 
-        padding='post', 
-        dtype='float32'
-    )
-    # Reshape for Conv1D input: (samples, timesteps, features)
-    X_structure = np.expand_dims(X_structure, axis=-1)
-    print(f"  Padded structure vectors shape: {X_structure.shape}")
-
-    # --- 4. Numerical Feature Scaling ---
-    print("\nStep 3: Scaling numerical features...")
+    # --- Step 1: First Pass to Fit Scaler and Validate Schema ---
+    print(f"\nStep 1: First pass on CSV to fit scaler, count rows, and validate schema...")
+    total_rows = 0
     scaler = MinMaxScaler()
-    X_numerical = scaler.fit_transform(df[numerical_features])
-    print(f"  Scaled numerical features shape: {X_numerical.shape}")
     
-    # Save the scaler for predicting on new data later
+    with pd.read_csv(PREPARED_DATASET_PATH, chunksize=CHUNK_SIZE, low_memory=False, nrows=CHUNK_SIZE) as reader:
+        # Validate schema on the first chunk
+        first_chunk = next(reader)
+        validate_chunk_columns(first_chunk.columns)
+        print("  - CSV schema validated successfully.")
+        total_rows += len(first_chunk)
+        # Clean and fit scaler on the first chunk
+        for col in NUMERICAL_FEATURES:
+            first_chunk[col] = pd.to_numeric(first_chunk[col], errors='coerce').fillna(0)
+        scaler.partial_fit(first_chunk[NUMERICAL_FEATURES])
+        
+    with pd.read_csv(PREPARED_DATASET_PATH, chunksize=CHUNK_SIZE, low_memory=False, skiprows=CHUNK_SIZE+1, header=None) as reader:
+        # Continue with the rest of the file
+        for chunk in reader:
+            total_rows += len(chunk)
+            chunk.columns = pd.read_csv(PREPARED_DATASET_PATH, nrows=0).columns
+            for col in NUMERICAL_FEATURES:
+                chunk[col] = pd.to_numeric(chunk[col], errors='coerce').fillna(0)
+            scaler.partial_fit(chunk[NUMERICAL_FEATURES])
+            
+    print(f"  - Found {total_rows} total rows.")
     scaler_filepath = os.path.join(OUTPUT_DL_FOLDER, 'minmax_scaler.pkl')
     joblib.dump(scaler, scaler_filepath)
-    print(f"  Scaler saved to: {scaler_filepath}")
+    print(f"  - Scaler fitted and saved to: {scaler_filepath}")
 
-    # --- 5. Prepare Labels ---
-    y = df['label'].values
-    print(f"\nStep 4: Preparing labels (shape: {y.shape})...")
+    # --- Step 2: Global Train/Test Split ---
+    print("\nStep 2: Creating a global 80/20 train-test split...")
+    all_indices = np.arange(total_rows)
+    # Read only the label column for stratification to save memory
+    all_labels = pd.read_csv(PREPARED_DATASET_PATH, usecols=[LABEL_FEATURE])[LABEL_FEATURE].values
+    train_indices, test_indices = train_test_split(all_indices, test_size=0.2, random_state=42, stratify=all_labels)
+    train_indices_set = set(train_indices)
+    test_indices_set = set(test_indices)
+    print(f"  - Training indices: {len(train_indices)}, Testing indices: {len(test_indices)}")
+    del all_labels, all_indices # Free up memory
 
-    # --- 6. Split Data into Training and Test Sets ---
-    print("\nStep 5: Splitting data into training (80%) and testing (20%) sets...")
+    # --- Step 3: Second Pass to Process and Split Data ---
+    print(f"\nStep 3: Second pass to process data in chunks of {CHUNK_SIZE}...")
     
-    # Create an array of indices to split all datasets consistently
-    indices = np.arange(len(df))
-    
-    # Stratify by 'label' to ensure both train and test sets have a similar class distribution
-    train_indices, test_indices = train_test_split(
-        indices, test_size=0.2, random_state=42, stratify=y
-    )
+    # Initialize lists to hold the processed data chunks
+    train_data_chunks = []
+    test_data_chunks = []
 
-    # Use the indices to create the final dictionaries for the model
-    X_train = {
-        'mirna_sequence_input': X_mirna_seq[train_indices],
-        'rre_sequence_input': X_rre_seq[train_indices],
-        'rev_sequence_input': X_rev_seq[train_indices],
-        'mirna_structure_input': X_structure[train_indices],
-        'numerical_features_input': X_numerical[train_indices]
-    }
-    y_train = y[train_indices]
+    processed_rows = 0
+    with pd.read_csv(PREPARED_DATASET_PATH, chunksize=CHUNK_SIZE, low_memory=False) as reader:
+        for chunk in reader:
+            # Re-apply cleaning and transformations
+            for col in NUMERICAL_FEATURES:
+                chunk[col] = pd.to_numeric(chunk[col], errors='coerce').fillna(0)
+            chunk[STRUCTURE_FEATURE] = chunk[STRUCTURE_FEATURE].apply(json.loads)
 
-    X_test = {
-        'mirna_sequence_input': X_mirna_seq[test_indices],
-        'rre_sequence_input': X_rre_seq[test_indices],
-        'rev_sequence_input': X_rev_seq[test_indices],
-        'mirna_structure_input': X_structure[test_indices],
-        'numerical_features_input': X_numerical[test_indices]
-    }
-    y_test = y[test_indices]
-    
-    print(f"  Training set size: {len(y_train)}")
-    print(f"  Test set size: {len(y_test)}")
-    print(f"  Training class distribution: {dict(zip(*np.unique(y_train, return_counts=True)))}")
-    print(f"  Test class distribution: {dict(zip(*np.unique(y_test, return_counts=True)))}")
+            # Split chunk based on global indices
+            chunk_indices = chunk.index.values
+            train_mask = np.isin(chunk_indices, list(train_indices_set))
+            test_mask = np.isin(chunk_indices, list(test_indices_set))
 
-    # --- 7. Save Processed Data for DL ---
-    print(f"\nStep 6: Saving processed data to '{OUTPUT_DL_FOLDER}'...")
+            # Process train and test data for the chunk if they exist
+            if np.any(train_mask):
+                train_data_chunks.append({
+                    'X_mirna': np.array([one_hot_encode_sequence(seq, MAX_MIRNA_LEN) for seq in chunk.loc[train_mask, 'sequence'].values]),
+                    'X_rre': np.array([one_hot_encode_sequence(seq, MAX_RRE_LEN) for seq in chunk.loc[train_mask, 'rre_sequence'].values]),
+                    'X_rev': np.array([one_hot_encode_sequence(seq, MAX_REV_LEN) for seq in chunk.loc[train_mask, 'rev_sequence'].values]),
+                    'X_struct': np.expand_dims(pad_sequences(chunk.loc[train_mask, STRUCTURE_FEATURE].tolist(), maxlen=MAX_MIRNA_LEN, padding='post', dtype='float32'), axis=-1),
+                    'X_num': scaler.transform(chunk.loc[train_mask, NUMERICAL_FEATURES].values),
+                    'y': chunk.loc[train_mask, LABEL_FEATURE].values
+                })
+            
+            if np.any(test_mask):
+                test_data_chunks.append({
+                    'X_mirna': np.array([one_hot_encode_sequence(seq, MAX_MIRNA_LEN) for seq in chunk.loc[test_mask, 'sequence'].values]),
+                    'X_rre': np.array([one_hot_encode_sequence(seq, MAX_RRE_LEN) for seq in chunk.loc[test_mask, 'rre_sequence'].values]),
+                    'X_rev': np.array([one_hot_encode_sequence(seq, MAX_REV_LEN) for seq in chunk.loc[test_mask, 'rev_sequence'].values]),
+                    'X_struct': np.expand_dims(pad_sequences(chunk.loc[test_mask, STRUCTURE_FEATURE].tolist(), maxlen=MAX_MIRNA_LEN, padding='post', dtype='float32'), axis=-1),
+                    'X_num': scaler.transform(chunk.loc[test_mask, NUMERICAL_FEATURES].values),
+                    'y': chunk.loc[test_mask, LABEL_FEATURE].values
+                })
+                
+            processed_rows += len(chunk)
+            print(f"  - Processed {processed_rows}/{total_rows} rows...")
+
+    # --- Step 4: Final Assembly and Saving ---
+    print("\nStep 4: Assembling and saving final NumPy arrays...")
     
-    # Save training data
+    # Define keys for clarity
+    feature_keys = ['X_mirna', 'X_rre', 'X_rev', 'X_struct', 'X_num']
+    model_input_keys = ['mirna_sequence_input', 'rre_sequence_input', 'rev_sequence_input', 'mirna_structure_input', 'numerical_features_input']
+
+    # Assemble training data
+    y_train = np.concatenate([d['y'] for d in train_data_chunks])
+    X_train = {}
+    for feature_key, model_input_key in zip(feature_keys, model_input_keys):
+        X_train[model_input_key] = np.concatenate([d[feature_key] for d in train_data_chunks])
+    
+    # Assemble test data
+    y_test = np.concatenate([d['y'] for d in test_data_chunks])
+    X_test = {}
+    for feature_key, model_input_key in zip(feature_keys, model_input_keys):
+        X_test[model_input_key] = np.concatenate([d[feature_key] for d in test_data_chunks])
+    
+    # Save all files
     for key, data in X_train.items():
         np.save(os.path.join(OUTPUT_DL_FOLDER, f'X_train_{key}.npy'), data)
     np.save(os.path.join(OUTPUT_DL_FOLDER, 'y_train.npy'), y_train)
 
-    # Save test data
     for key, data in X_test.items():
         np.save(os.path.join(OUTPUT_DL_FOLDER, f'X_test_{key}.npy'), data)
     np.save(os.path.join(OUTPUT_DL_FOLDER, 'y_test.npy'), y_test)
     
-    print("  All files saved successfully.")
+    print("  - All files saved successfully.")
+    
+    end_time = time.time()
+    print("\n--- Deep Learning Data Preparation Complete ---")
+    print(f"Total time taken: {end_time - start_time:.2f} seconds")
 
-# --- Main Execution ---
 if __name__ == "__main__":
-    print(f"Loading prepared dataset from: {PREPARED_DATASET_PATH}")
-    if os.path.exists(PREPARED_DATASET_PATH):
-        try:
-            prepared_df = pd.read_csv(PREPARED_DATASET_PATH)
-            print(f"Prepared dataset loaded. Shape: {prepared_df.shape}")
-            
-            if prepared_df.shape[0] > 0:
-                process_and_save_for_dl(prepared_df)
-                print("\nDeep learning data preparation complete. Ready for model building!")
-            else:
-                print("\nWarning: The prepared dataset is empty. Cannot proceed.")
-                
-        except Exception as e:
-            print(f"\nAn error occurred while processing the CSV file: {e}")
-            print("Please check if the CSV file is valid and not corrupted.")
-            
-    else:
-        print(f"\nError: Prepared dataset not found at '{PREPARED_DATASET_PATH}'.")
-        print("Please run the `1. dataset_preparation.py` script first to generate the dataset.")
+    main()
