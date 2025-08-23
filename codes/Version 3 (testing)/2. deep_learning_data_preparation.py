@@ -42,12 +42,9 @@ def main():
         print(f"\nError: Prepared dataset not found at '{PREPARED_DATASET_PATH}'.")
         return
 
-    # --- Step 1: Preliminary Scan to get total rows and fit the scaler ---
+    # --- Step 1: Preliminary Scan ---
     print(f"\nStep 1: First pass on '{PREPARED_DATASET_FILENAME}' to fit scaler and count rows...")
-    
-    # You may need this library: pip install pyarrow fastparquet
     import pyarrow.parquet as pq
-    
     try:
         parquet_file = pq.ParquetFile(PREPARED_DATASET_PATH)
         total_rows = parquet_file.metadata.num_rows
@@ -57,16 +54,14 @@ def main():
         return
 
     scaler = MinMaxScaler()
-    # Fit the scaler iteratively over batches to save memory
     for batch in parquet_file.iter_batches(batch_size=CHUNK_SIZE, columns=NUMERICAL_FEATURES):
-        chunk_df = batch.to_pandas()
-        scaler.partial_fit(chunk_df)
+        scaler.partial_fit(batch.to_pandas())
 
     scaler_filepath = os.path.join(OUTPUT_DL_FOLDER, 'minmax_scaler.pkl')
     joblib.dump(scaler, scaler_filepath)
     print(f"  - Scaler has been fitted and saved to: {scaler_filepath}")
 
-    # --- Step 2: Create a global train/test split of indices ---
+    # --- Step 2: Global Train/Test Split ---
     print("\nStep 2: Creating a global 80/20 train-test split...")
     all_indices = np.arange(total_rows)
     train_indices, test_indices = train_test_split(all_indices, test_size=0.2, random_state=42)
@@ -75,75 +70,94 @@ def main():
     print(f"  - Training indices: {len(train_indices)}, Testing indices: {len(test_indices)}")
     del all_indices
 
-    # --- Step 3: Second pass to process data in chunks ---
-    print(f"\nStep 3: Second pass to process data in chunks of {CHUNK_SIZE}...")
-    
-    train_chunks = {key: [] for key in ['y', 'mirna', 'rre', 'rev', 'struct', 'num']}
-    test_chunks = {key: [] for key in ['y', 'mirna', 'rre', 'rev', 'struct', 'num']}
+    # --- Step 3 & 4: Process Chunks and Save Directly to Temporary Files ---
+    print(f"\nStep 3 & 4: Processing chunks and saving directly to disk...")
+
+    # Define paths for our final output files
+    output_paths = {
+        'X_train_mirna': os.path.join(OUTPUT_DL_FOLDER, 'X_train_mirna_sequence_input.npy'),
+        'X_train_rre': os.path.join(OUTPUT_DL_FOLDER, 'X_train_rre_sequence_input.npy'),
+        'X_train_rev': os.path.join(OUTPUT_DL_FOLDER, 'X_train_rev_sequence_input.npy'),
+        'X_train_struct': os.path.join(OUTPUT_DL_FOLDER, 'X_train_mirna_structure_input.npy'),
+        'X_train_num': os.path.join(OUTPUT_DL_FOLDER, 'X_train_numerical_features_input.npy'),
+        'y_train': os.path.join(OUTPUT_DL_FOLDER, 'y_train.npy'),
+        'X_test_mirna': os.path.join(OUTPUT_DL_FOLDER, 'X_test_mirna_sequence_input.npy'),
+        'X_test_rre': os.path.join(OUTPUT_DL_FOLDER, 'X_test_rre_sequence_input.npy'),
+        'X_test_rev': os.path.join(OUTPUT_DL_FOLDER, 'X_test_rev_sequence_input.npy'),
+        'X_test_struct': os.path.join(OUTPUT_DL_FOLDER, 'X_test_mirna_structure_input.npy'),
+        'X_test_num': os.path.join(OUTPUT_DL_FOLDER, 'X_test_numerical_features_input.npy'),
+        'y_test': os.path.join(OUTPUT_DL_FOLDER, 'y_test.npy'),
+    }
+
+    # Delete old files if they exist
+    for path in output_paths.values():
+        if os.path.exists(path):
+            os.remove(path)
+
     processed_rows = 0
-
     for batch in parquet_file.iter_batches(batch_size=CHUNK_SIZE):
-        chunk = batch.to_pandas()
-        chunk_indices = np.arange(processed_rows, processed_rows + len(chunk))
-        
-        # Determine which rows in this chunk belong to train vs test
-        train_mask = np.isin(chunk_indices, train_indices_set)
-        test_mask = np.isin(chunk_indices, test_indices_set)
+        chunk_df = batch.to_pandas()
+        chunk_indices = pd.RangeIndex(start=processed_rows, stop=processed_rows + len(chunk_df))
 
-        # Process and append train data
-        if np.any(train_mask):
-            train_subset = chunk[train_mask]
-            train_chunks['y'].append(train_subset[TARGET_FEATURE].values.astype(np.float32))
-            train_chunks['mirna'].append(np.array([one_hot_encode_sequence(seq, MAX_MIRNA_LEN) for seq in train_subset['sequence'].values]))
-            train_chunks['rre'].append(np.array([one_hot_encode_sequence(seq, MAX_RRE_LEN) for seq in train_subset['rre_sequence'].values]))
-            train_chunks['rev'].append(np.array([one_hot_encode_sequence(seq, MAX_REV_LEN) for seq in train_subset['rev_sequence'].values]))
-            train_chunks['struct'].append(np.expand_dims(pad_sequences(train_subset['structure_vector'].apply(json.loads).tolist(), maxlen=MAX_MIRNA_LEN, padding='post', dtype='float32'), axis=-1))
-            train_chunks['num'].append(scaler.transform(train_subset[NUMERICAL_FEATURES].values))
-        
-        # Process and append test data
-        if np.any(test_mask):
-            test_subset = chunk[test_mask]
-            test_chunks['y'].append(test_subset[TARGET_FEATURE].values.astype(np.float32))
-            test_chunks['mirna'].append(np.array([one_hot_encode_sequence(seq, MAX_MIRNA_LEN) for seq in test_subset['sequence'].values]))
-            test_chunks['rre'].append(np.array([one_hot_encode_sequence(seq, MAX_RRE_LEN) for seq in test_subset['rre_sequence'].values]))
-            test_chunks['rev'].append(np.array([one_hot_encode_sequence(seq, MAX_REV_LEN) for seq in test_subset['rev_sequence'].values]))
-            test_chunks['struct'].append(np.expand_dims(pad_sequences(test_subset['structure_vector'].apply(json.loads).tolist(), maxlen=MAX_MIRNA_LEN, padding='post', dtype='float32'), axis=-1))
-            test_chunks['num'].append(scaler.transform(test_subset[NUMERICAL_FEATURES].values))
+        # Find intersections and create local indices
+        train_chunk_indices = train_indices_set.intersection(chunk_indices)
+        test_chunk_indices = test_indices_set.intersection(chunk_indices)
+        local_train_indices = [idx - processed_rows for idx in train_chunk_indices]
+        local_test_indices = [idx - processed_rows for idx in test_chunk_indices]
 
-        processed_rows += len(chunk)
-        print(f"  - Processed {processed_rows}/{total_rows} rows...")
+        # Process and append train data directly to files
+        if local_train_indices:
+            train_subset = chunk_df.iloc[local_train_indices]
+            # --- This is an inline function to append to a .npy file ---
+            def append_to_npy(filepath, data):
+                with open(filepath, 'ab') as f:
+                    np.save(f, data)
+            
+            append_to_npy(output_paths['y_train'], train_subset[TARGET_FEATURE].values.astype(np.float32))
+            append_to_npy(output_paths['X_train_mirna'], np.array([one_hot_encode_sequence(seq, MAX_MIRNA_LEN) for seq in train_subset['sequence'].values]))
+            append_to_npy(output_paths['X_train_rre'], np.array([one_hot_encode_sequence(seq, MAX_RRE_LEN) for seq in train_subset['rre_sequence'].values]))
+            append_to_npy(output_paths['X_train_rev'], np.array([one_hot_encode_sequence(seq, MAX_REV_LEN) for seq in train_subset['rev_sequence'].values]))
+            append_to_npy(output_paths['X_train_struct'], np.expand_dims(pad_sequences(train_subset['structure_vector'].apply(json.loads).tolist(), maxlen=MAX_MIRNA_LEN, padding='post', dtype='float32'), axis=-1))
+            append_to_npy(output_paths['X_train_num'], scaler.transform(train_subset[NUMERICAL_FEATURES].values))
 
-    # --- Step 4: Final assembly and saving ---
-    print("\nStep 4: Assembling and saving final NumPy arrays...")
+        # Process and append test data directly to files
+        if local_test_indices:
+            test_subset = chunk_df.iloc[local_test_indices]
+            append_to_npy(output_paths['y_test'], test_subset[TARGET_FEATURE].values.astype(np.float32))
+            append_to_npy(output_paths['X_test_mirna'], np.array([one_hot_encode_sequence(seq, MAX_MIRNA_LEN) for seq in test_subset['sequence'].values]))
+            append_to_npy(output_paths['X_test_rre'], np.array([one_hot_encode_sequence(seq, MAX_RRE_LEN) for seq in test_subset['rre_sequence'].values]))
+            append_to_npy(output_paths['X_test_rev'], np.array([one_hot_encode_sequence(seq, MAX_REV_LEN) for seq in test_subset['rev_sequence'].values]))
+            append_to_npy(output_paths['X_test_struct'], np.expand_dims(pad_sequences(test_subset['structure_vector'].apply(json.loads).tolist(), maxlen=MAX_MIRNA_LEN, padding='post', dtype='float32'), axis=-1))
+            append_to_npy(output_paths['X_test_num'], scaler.transform(test_subset[NUMERICAL_FEATURES].values))
+
+        processed_rows += len(chunk_df)
+        print(f"  - Processed and saved {processed_rows}/{total_rows} rows...")
+
+    # --- Step 5: Finalize and clean up ---
+    print("\nStep 5: Merging temporary chunk files into final arrays...")
     
-    y_train = np.concatenate(train_chunks['y'])
-    y_test = np.concatenate(test_chunks['y'])
+    # This function will load all the small chunks and concatenate them
+    def merge_npy_chunks(filepath):
+        chunks = []
+        with open(filepath, 'rb') as f:
+            while True:
+                try:
+                    chunks.append(np.load(f, allow_pickle=True))
+                except (EOFError, ValueError):
+                    break
+        return np.concatenate(chunks)
 
-    X_train = {
-        'mirna_sequence_input': np.concatenate(train_chunks['mirna']),
-        'rre_sequence_input': np.concatenate(train_chunks['rre']),
-        'rev_sequence_input': np.concatenate(train_chunks['rev']),
-        'mirna_structure_input': np.concatenate(train_chunks['struct']),
-        'numerical_features_input': np.concatenate(train_chunks['num'])
-    }
-    X_test = {
-        'mirna_sequence_input': np.concatenate(test_chunks['mirna']),
-        'rre_sequence_input': np.concatenate(test_chunks['rre']),
-        'rev_sequence_input': np.concatenate(test_chunks['rev']),
-        'mirna_structure_input': np.concatenate(test_chunks['struct']),
-        'numerical_features_input': np.concatenate(test_chunks['num'])
-    }
+    for key, path in output_paths.items():
+        print(f"  - Merging {key}...")
+        final_array = merge_npy_chunks(path)
+        np.save(path, final_array) # Overwrite the chunked file with the final merged array
     
-    for key, data in X_train.items(): np.save(os.path.join(OUTPUT_DL_FOLDER, f'X_train_{key}.npy'), data)
-    np.save(os.path.join(OUTPUT_DL_FOLDER, 'y_train.npy'), y_train)
-    for key, data in X_test.items(): np.save(os.path.join(OUTPUT_DL_FOLDER, f'X_test_{key}.npy'), data)
-    np.save(os.path.join(OUTPUT_DL_FOLDER, 'y_test.npy'), y_test)
-    
-    print("  - All NumPy array files saved successfully.")
+    print("  - All NumPy array files finalized successfully.")
     
     end_time = time.time()
     print("\n--- Deep Learning Data Preparation Complete ---")
     print(f"Total time taken: {end_time - start_time:.2f} seconds")
+
 
 if __name__ == "__main__":
     main()
