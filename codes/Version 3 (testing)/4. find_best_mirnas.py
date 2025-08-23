@@ -87,8 +87,12 @@ def load_all_fastas_in_folder(folder_path):
 
 # --- Main Execution ---
 def main(args):
-    print("--- miRNA Ranking Prediction Tool ---")
+    print("--- miRNA Ranking Prediction Tool (True Streaming Version) ---")
     
+    # You may need to install/update this library: pip install pyarrow
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
     try:
         model = load_model(os.path.join(MODEL_DIR, MODEL_FILE))
         scaler = joblib.load(os.path.join(DATA_PREP_DIR, SCALER_FILE))
@@ -103,27 +107,34 @@ def main(args):
     
     try:
         print("\nAuto-detecting model's trained sequence lengths...")
-        # --- FIX: Use .output_shape instead of .input_shape ---
-        MAX_MIRNA_LEN = model.get_layer('mirna_sequence_input').output_shape[1]
-        MAX_RRE_LEN = model.get_layer('rre_sequence_input').output_shape[1]
-        MAX_REV_LEN = model.get_layer('rev_sequence_input').output_shape[1]
+        # --- FIX: Access shape information directly from the model's input dictionary ---
+        MAX_MIRNA_LEN = model.input['mirna_sequence_input'].shape[1]
+        MAX_RRE_LEN = model.input['rre_sequence_input'].shape[1]
+        MAX_REV_LEN = model.input['rev_sequence_input'].shape[1]
         
         print(f"  - Model expects miRNA length: {MIN_MIRNA_LEN_TRAINED}-{MAX_MIRNA_LEN}")
     except Exception as e:
         print(f"  - Warning: Could not auto-detect sequence lengths. Using defaults (80, 150, 200). Error: {e}")
-    
     max_lens = (MAX_MIRNA_LEN, MAX_RRE_LEN, MAX_REV_LEN)
 
+    # Load all necessary sequences
     target_rres = load_all_fastas_in_folder(args.rre_folder)
     target_revs = load_all_fastas_in_folder(args.rev_folder)
     candidate_mirnas = load_all_fastas_in_folder(args.mirna_folder)
 
     if not all([target_rres, target_revs, candidate_mirnas]):
-        print("\nAborting: Missing miRNA, RRE, or REV sequences.")
+        print("\nAborting: Missing input sequences.")
         return
 
-    all_results_dfs = []
+    # --- CHANGE: Set up for streaming directly to a Parquet file ---
+    output_filename = os.path.join(PREDICTION_DIR, 'ranked_mirna_predictions.parquet')
+    if os.path.exists(output_filename):
+        os.remove(output_filename) # Ensure a fresh start
+    
+    parquet_writer = None
     batch_results = []
+    total_processed = 0
+
     rre_record, rev_record = target_rres[0], target_revs[0]
     rre_seq, rev_seq = str(rre_record.seq), str(rev_record.seq)
     print(f"\nUsing Target RRE: {rre_record.id} | Competitor: {rev_record.id}")
@@ -131,6 +142,7 @@ def main(args):
     
     for i, mirna_record in enumerate(candidate_mirnas):
         mirna_seq = str(mirna_record.seq)
+        
         warning_message = "OK"
         if not (MIN_MIRNA_LEN_TRAINED <= len(mirna_seq) <= MAX_MIRNA_LEN):
             warning_message = f"Length ({len(mirna_seq)}) outside trained range ({MIN_MIRNA_LEN_TRAINED}-{MAX_MIRNA_LEN}). Extrapolation."
@@ -142,30 +154,47 @@ def main(args):
         pred_competition = model.predict(competition_input, verbose=0)[0][0]
         
         batch_results.append({
-            'mirna_id': mirna_record.id, 'predicted_affinity_baseline': pred_baseline,
-            'predicted_affinity_with_rev': pred_competition, 'competitive_effect': pred_baseline - pred_competition,
+            'mirna_id': mirna_record.id,
+            'predicted_affinity_baseline': pred_baseline,
+            'predicted_affinity_with_rev': pred_competition,
+            'competitive_effect': pred_baseline - pred_competition,
             'Warning': warning_message
         })
         
+        # --- CHANGE: Write to disk when the batch is full or at the end of the loop ---
         if len(batch_results) >= PREDICTION_BATCH_SIZE or (i + 1) == len(candidate_mirnas):
-            all_results_dfs.append(pd.DataFrame(batch_results))
-            batch_results = []
-            print(f"  - Processed {i+1}/{len(candidate_mirnas)} miRNAs...")
+            if not batch_results: continue
 
-    if not all_results_dfs:
-        print("\nNo valid miRNAs were processed.")
-        return
+            batch_df = pd.DataFrame(batch_results)
+            table = pa.Table.from_pandas(batch_df)
+            
+            if parquet_writer is None:
+                # For the first batch, create the writer with the correct data schema
+                parquet_writer = pq.ParquetWriter(output_filename, table.schema)
+            
+            parquet_writer.write_table(table)
+            
+            total_processed += len(batch_results)
+            print(f"  - Processed and saved {total_processed}/{len(candidate_mirnas)} miRNAs...")
+            batch_results = [] # Reset the batch, freeing memory
 
-    print("\nFinalizing and saving results to Parquet file...")
-    final_results_df = pd.concat(all_results_dfs, ignore_index=True)
-    final_results_df.sort_values(by='predicted_affinity_with_rev', ascending=False, inplace=True)
+    # --- CHANGE: Close the writer to finalize the file ---
+    if parquet_writer:
+        parquet_writer.close()
+
+    print("\n--- Prediction Complete ---")
+    print(f"Full, unsorted results have been saved to '{output_filename}'.")
     
-    output_filename = os.path.join(PREDICTION_DIR, 'ranked_mirna_predictions.parquet')
-    final_results_df.to_parquet(output_filename, index=False)
+    # Optional: Load and display the top results from the saved file for a quick preview
+    print("\n--- Preview of Top 10 Predicted Interacting miRNAs ---")
+    try:
+        final_df = pd.read_parquet(output_filename)
+        # Sort the DataFrame in memory for display purposes (only after all data is saved)
+        final_df.sort_values(by='predicted_affinity_with_rev', ascending=False, inplace=True)
+        print(final_df.head(10).to_string(float_format='%.4f'))
+    except Exception as e:
+        print(f"Could not read final Parquet file for preview. Error: {e}")
 
-    print("\n--- Top 10 Prediction Results ---")
-    print(final_results_df.head(10).to_string(float_format='%.4f'))
-    print(f"\nFull ranked results saved to '{output_filename}'.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Predict miRNA-RRE binding affinity.")
