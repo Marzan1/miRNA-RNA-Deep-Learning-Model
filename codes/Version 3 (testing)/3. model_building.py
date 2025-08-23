@@ -1,104 +1,132 @@
-# 3. model_building.py (Research-Grade Version)
-import numpy as np
-import tensorflow as tf
-from tensorflow.keras.layers import Input, Conv1D, GlobalMaxPooling1D, Dense, concatenate, Dropout, BatchNormalization
-from tensorflow.keras.models import Model
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
-from sklearn.utils import class_weight
+# 3. model_building.py (Final Corrected Version)
 import os
 import json
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.layers import (Input, Conv1D, GlobalMaxPooling1D, Dense, 
+                                     concatenate, Dropout, BatchNormalization)
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import (ModelCheckpoint, EarlyStopping, 
+                                        ReduceLROnPlateau, TensorBoard)
+import datetime
 
-# --- Configuration Constants ---
+# --- Configuration ---
 DATA_PATH = r"E:\1. miRNA-RNA-Deep-Learning-Model\dataset\processed_for_dl"
 MODEL_SAVE_DIR = r"E:\1. miRNA-RNA-Deep-Learning-Model\models"
 os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
+BATCH_SIZE = 256
 
-# --- 1. Load Processed Data ---
-print("Loading processed data...")
-X_train, X_test = {}, {}
-try:
-    for key in ['mirna_sequence_input', 'rre_sequence_input', 'rev_sequence_input', 'mirna_structure_input', 'numerical_features_input']:
-        X_train[key] = np.load(os.path.join(DATA_PATH, f'X_train_{key}.npy'))
-        X_test[key] = np.load(os.path.join(DATA_PATH, f'X_test_{key}.npy'))
-    y_train = np.load(os.path.join(DATA_PATH, 'y_train.npy'))
-    y_test = np.load(os.path.join(DATA_PATH, 'y_test.npy'))
-except FileNotFoundError as e:
-    print(f"Error loading data: {e}. Please run the previous scripts.")
-    exit()
-print("Data loaded successfully.")
+# --- Custom Data Generator for Large Datasets ---
+class DataGenerator(tf.keras.utils.Sequence):
+    def __init__(self, data_path, input_keys, target_key, batch_size, indices, prefix):
+        self.data_path = data_path
+        self.input_keys = input_keys
+        self.target_key = target_key
+        self.batch_size = batch_size
+        self.indices = indices
+        self.num_samples = len(indices)
+        self.prefix = prefix # 'X_train_' or 'X_test_'
+        
+        self.inputs = {key: np.load(os.path.join(data_path, f'{self.prefix}{key}.npy'), mmap_mode='r') for key in self.input_keys}
+        self.targets = np.load(os.path.join(data_path, f'{target_key}.npy'), mmap_mode='r')
 
-# --- 2. Calculate Class Weights for Imbalanced Data ---
-print("\nCalculating class weights to handle data imbalance...")
-weights = class_weight.compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
-class_weights = dict(enumerate(weights))
-print(f"  - Weights computed for classes: {class_weights}")
+    def __len__(self):
+        return int(np.floor(self.num_samples / self.batch_size))
 
-# --- 3. Model Architecture ---
-print("\nBuilding the model...")
-# Input layers
-input_mirna_seq = Input(shape=X_train['mirna_sequence_input'].shape[1:], name='mirna_sequence_input')
-input_rre_seq = Input(shape=X_train['rre_sequence_input'].shape[1:], name='rre_sequence_input')
-input_rev_seq = Input(shape=X_train['rev_sequence_input'].shape[1:], name='rev_sequence_input')
-input_mirna_structure = Input(shape=X_train['mirna_structure_input'].shape[1:], name='mirna_structure_input')
-input_numerical = Input(shape=X_train['numerical_features_input'].shape[1:], name='numerical_features_input')
+    def __getitem__(self, index):
+        batch_start = index * self.batch_size
+        batch_end = (index + 1) * self.batch_size
+        batch_indices = self.indices[batch_start:batch_end]
+        
+        # --- CHANGE: Create the dictionary with the clean keys the model expects ---
+        X = {key: self.inputs[key][batch_indices] for key in self.input_keys}
+        y = self.targets[batch_indices]
+        
+        return X, y
 
-# Convolutional branches for sequences
-x_mirna = Conv1D(filters=64, kernel_size=7, activation='relu', padding='same')(input_mirna_seq)
-x_mirna = BatchNormalization()(x_mirna)
-x_mirna = GlobalMaxPooling1D()(x_mirna)
+# --- Main Execution Block ---
+if __name__ == "__main__":
+    
+    # --- Step 1: Get Data Indices ---
+    print("Step 1: Getting data indices and file paths...")
+    try:
+        train_indices = np.arange(len(np.load(os.path.join(DATA_PATH, 'y_train.npy'), mmap_mode='r')))
+        test_indices = np.arange(len(np.load(os.path.join(DATA_PATH, 'y_test.npy'), mmap_mode='r')))
+        np.random.shuffle(train_indices)
+        print(f"  - Found {len(train_indices)} training samples and {len(test_indices)} test samples.")
+    except FileNotFoundError as e:
+        print(f"  - Error finding data files: {e}. Please run the data preparation script first.")
+        exit()
 
-x_rre = Conv1D(filters=64, kernel_size=7, activation='relu', padding='same')(input_rre_seq)
-x_rre = BatchNormalization()(x_rre)
-x_rre = GlobalMaxPooling1D()(x_rre)
+    # --- Step 2: Create Data Generators ---
+    print("\nStep 2: Creating data generators to feed the model from disk...")
+    model_input_keys = ['mirna_sequence_input', 'rre_sequence_input', 'rev_sequence_input', 
+                       'mirna_structure_input', 'numerical_features_input']
+    
+    train_generator = DataGenerator(DATA_PATH, model_input_keys, 'y_train', BATCH_SIZE, train_indices, 'X_train_')
+    test_generator = DataGenerator(DATA_PATH, model_input_keys, 'y_test', BATCH_SIZE, test_indices, 'X_test_')
 
-x_rev = Conv1D(filters=32, kernel_size=7, activation='relu', padding='same')(input_rev_seq)
-x_rev = BatchNormalization()(x_rev)
-x_rev = GlobalMaxPooling1D()(x_rev)
+    # --- Step 3: Model Architecture ---
+    print("\nStep 3: Building the regression model architecture...")
+    # Get a sample batch to determine input shapes
+    sample_X, _ = train_generator[0]
+    
+    # Create Keras Input layers with explicit names
+    input_layers = {
+        key: Input(shape=sample_X[key].shape[1:], name=key) for key in model_input_keys
+    }
 
-x_structure = Conv1D(filters=32, kernel_size=5, activation='relu')(input_mirna_structure)
-x_structure = GlobalMaxPooling1D()(x_structure)
+    # Define the model architecture using the named layers
+    x_mirna = GlobalMaxPooling1D()(BatchNormalization()(Conv1D(filters=64, kernel_size=7, activation='relu', padding='same')(input_layers['mirna_sequence_input'])))
+    x_rre = GlobalMaxPooling1D()(BatchNormalization()(Conv1D(filters=64, kernel_size=7, activation='relu', padding='same')(input_layers['rre_sequence_input'])))
+    x_rev = GlobalMaxPooling1D()(BatchNormalization()(Conv1D(filters=32, kernel_size=5, activation='relu', padding='same')(input_layers['rev_sequence_input'])))
+    x_structure = GlobalMaxPooling1D()(Conv1D(filters=32, kernel_size=5, activation='relu')(input_layers['mirna_structure_input']))
+    x_numerical = Dense(16, activation='relu')(input_layers['numerical_features_input'])
 
-x_numerical = Dense(16, activation='relu')(input_numerical)
+    combined = concatenate([x_mirna, x_rre, x_rev, x_structure, x_numerical])
+    combined = Dropout(0.5)(combined)
 
-# Concatenate all branches
-combined = concatenate([x_mirna, x_rre, x_rev, x_structure, x_numerical])
-combined = Dropout(0.5)(combined)
+    x = Dense(128, activation='relu')(combined)
+    x = BatchNormalization()(x)
+    x = Dropout(0.5)(x)
+    x = Dense(64, activation='relu')(x)
+    output = Dense(1, activation='sigmoid', name='affinity_output')(x)
 
-# Fully connected layers
-x = Dense(128, activation='relu')(combined)
-x = BatchNormalization()(x)
-x = Dropout(0.5)(x)
-x = Dense(64, activation='relu')(x)
-output = Dense(1, activation='sigmoid', name='output_label')(x)
+    model = Model(inputs=input_layers, outputs=output)
+    
+    model.compile(optimizer=Adam(learning_rate=0.001), 
+                  loss='mean_squared_error', 
+                  metrics=['mean_absolute_error'])
+    model.summary()
 
-model = Model(inputs=list(X_train.keys()), outputs=output)
-model.compile(optimizer=Adam(learning_rate=0.001),
-              loss='binary_crossentropy',
-              metrics=['accuracy', tf.keras.metrics.Precision(name='precision'), tf.keras.metrics.Recall(name='recall'), tf.keras.metrics.AUC(name='auc')])
-model.summary()
+    # --- Step 4: Callbacks ---
+    print("\nStep 4: Defining callbacks for training...")
+    log_dir = os.path.join("logs", "fit", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+    callbacks = [
+        ModelCheckpoint(filepath=os.path.join(MODEL_SAVE_DIR, 'best_regression_model.keras'), 
+                        save_best_only=True, monitor='val_loss', mode='min', verbose=1),
+        EarlyStopping(monitor='val_loss', patience=10, mode='min', restore_best_weights=True, verbose=1),
+        ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=0.00001, verbose=1),
+        TensorBoard(log_dir=log_dir, histogram_freq=1)
+    ]
+    print(f"  - TensorBoard logs will be saved to: {log_dir}")
 
-# --- 4. Callbacks for Smarter Training ---
-callbacks = [
-    ModelCheckpoint(filepath=os.path.join(MODEL_SAVE_DIR, 'best_model.keras'), save_best_only=True, monitor='val_auc', mode='max', verbose=1),
-    EarlyStopping(monitor='val_auc', patience=10, mode='max', restore_best_weights=True, verbose=1),
-    ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=0.00001, verbose=1)
-]
+    # --- Step 5: Train the Model ---
+    print("\nStep 5: Starting model training using data generators...")
+    history = model.fit(
+        train_generator,
+        epochs=100,
+        validation_data=test_generator,
+        callbacks=callbacks,
+        verbose=1
+    )
 
-# --- 5. Train the Model ---
-print("\nStarting model training...")
-history = model.fit(
-    X_train, y_train,
-    epochs=100,
-    batch_size=256,
-    validation_data=(X_test, y_test),
-    class_weight=class_weights, # Use class weights here
-    callbacks=callbacks,
-    verbose=1
-)
+    # --- Step 6: Save History ---
+    print("\nStep 6: Saving training history...")
+    history_path = os.path.join(MODEL_SAVE_DIR, 'training_history_regression.json')
+    history_dict = {key: [float(val) for val in values] for key, values in history.history.items()}
+    with open(history_path, 'w') as f:
+        json.dump(history_dict, f)
 
-# --- 6. Save Final Model and History ---
-history_path = os.path.join(MODEL_SAVE_DIR, 'training_history.json')
-with open(history_path, 'w') as f:
-    json.dump(history.history, f)
-print(f"\nTraining complete. Best model saved, and history logged to {history_path}")
+    print(f"\n--- Training Complete ---")
