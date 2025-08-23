@@ -230,39 +230,64 @@ def prepare_dataset():
     all_competitors = list(all_rev.items()) + [null_competitor]
     print(f"  Augmented list created with {len(all_competitors)} entries.")
 
-    print(f"\nStep 5: Generating and streaming all combinations to CSV (Batch Size: {CSV_BATCH_SIZE})...")
-    output_path = os.path.join(PREPARED_DATASET_DIR, "Prepared_Dataset.csv")
+    print(f"\nStep 5: Generating and streaming all combinations to PARQUET (Batch Size: {CSV_BATCH_SIZE})...")
+    # --- CHANGE: Define the output path for the Parquet file ---
+    output_path = os.path.join(PREPARED_DATASET_DIR, "Prepared_Dataset.parquet")
     
-    # ENHANCEMENT: Stream to CSV in batches to handle millions of rows without memory failure
-    header_written = False
+    # If an old file exists, remove it before starting
+    if os.path.exists(output_path):
+        os.remove(output_path)
+
+    # --- CHANGE: Logic to stream directly to a Parquet file ---
+    # You may need to install this library first: pip install pyarrow
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
     batch = []
     total_rows = 0
+    parquet_writer = None
+    
     combinations = product(processed_mirnas, all_rre_processed.items(), all_competitors)
 
     for mirna_data, (rre_id, rre_seq), (rev_id, rev_seq) in combinations:
         row = mirna_data.copy()
+        
+        # --- CHANGE: We no longer need the binary 'label' column ---
+        # The 'affinity' score itself is now our target
+        row.pop('label', None) 
+        
         row.update({'rre_id': rre_id, 'rre_sequence': rre_seq, 'rev_id': rev_id, 'rev_sequence': rev_seq})
         batch.append(row)
 
         if len(batch) >= CSV_BATCH_SIZE:
             df_batch = pd.DataFrame(batch)
-            df_batch.to_csv(output_path, mode='a', index=False, header=not header_written)
-            header_written = True
+            table = pa.Table.from_pandas(df_batch)
+            if parquet_writer is None:
+                # For the first batch, create the writer with the schema
+                parquet_writer = pq.ParquetWriter(output_path, table.schema)
+            
+            parquet_writer.write_table(table)
             total_rows += len(batch)
-            print(f"  ... {total_rows} rows written to CSV")
+            print(f"  ... {total_rows} rows written to Parquet")
             batch = [] # Reset the batch
 
     # Write any remaining rows in the last batch
     if batch:
         df_batch = pd.DataFrame(batch)
-        df_batch.to_csv(output_path, mode='a', index=False, header=not header_written)
+        table = pa.Table.from_pandas(df_batch)
+        if parquet_writer is None:
+            parquet_writer = pq.ParquetWriter(output_path, table.schema)
+        parquet_writer.write_table(table)
         total_rows += len(batch)
+
+    # Close the writer to finalize the file
+    if parquet_writer:
+        parquet_writer.close()
 
     end_time = time.time()
     print("\n--- Dataset Preparation Summary ---")
     print(f"Total combinations generated (rows): {total_rows}")
     print(f"Dataset saved successfully to {output_path}")
     print(f"Total time taken: {end_time - start_time:.2f} seconds")
-
 if __name__ == "__main__":
     prepare_dataset()
