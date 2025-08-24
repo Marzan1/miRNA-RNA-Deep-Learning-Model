@@ -37,11 +37,11 @@
     "_comment": "Parameters for filtering and processing molecules.",
     "focus_on_target_region": true,
     "target_region_name": "StemIIB",
-    "target_region_slice": [39, 80],
-    "min_mirna_len": 20,
-    "max_mirna_len": 70,
-    "min_gc_content": 0.30,
-    "max_gc_content": 0.80
+    "target_region_slice": [90, 150],
+    "min_mirna_len": 10,
+    "max_mirna_len": 150,
+    "min_gc_content": 0.20,
+    "max_gc_content": 0.90
   },
   
   "training_parameters": {

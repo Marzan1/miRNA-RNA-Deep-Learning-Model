@@ -1,0 +1,189 @@
+# 1_dataset_preparation.py (Universal, Config-Driven Framework)
+import os
+import pandas as pd
+from Bio import SeqIO
+import subprocess
+import numpy as np
+import re
+import json
+from itertools import product
+from multiprocessing import Pool, cpu_count
+import time
+# --- CHANGE: Import the new processors ---
+from molecule_processors import PROCESSOR_MAP
+
+# --- Configuration Loader ---
+def load_config(config_path='../config.json'):
+    """Loads the configuration from a JSON file in the project root."""
+    try:
+        with open(config_path, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"FATAL: Configuration file not found at '{config_path}'. Please create it in the project root.")
+        exit()
+
+# --- Helper Functions ---
+def _get_files_in_folder(folder_path, extensions):
+    if not os.path.exists(folder_path): return []
+    return [os.path.join(folder_path, f) for f in os.listdir(folder_path) if any(f.lower().endswith(ext) for ext in extensions)]
+
+def load_data_from_fasta(folder_path):
+    data_dict = {}
+    for filepath in _get_files_in_folder(folder_path, ['.fasta', '.fa', '.txt']):
+        try:
+            for record in SeqIO.parse(filepath, "fasta"):
+                data_dict[record.id] = str(record.seq).replace('T', 'U')
+        except Exception: pass
+    return data_dict
+
+def load_scores(folder_path, id_col, score_col, file_type_name):
+    data_dict = {}
+    all_scores = []
+    print(f"  Scanning {file_type_name} files in '{folder_path}'...")
+    for filepath in _get_files_in_folder(folder_path, ['.txt', '.tsv', '.csv']):
+        try:
+            sep = '\t' if filepath.lower().endswith(('.txt', '.tsv')) else ','
+            df = pd.read_csv(
+                filepath, sep=sep, comment='#',
+                usecols=lambda column: column.lower().strip() in [id_col, score_col],
+                dtype={id_col: str, score_col: float}, na_values=['NULL']
+            )
+            df.columns = [col.lower().strip() for col in df.columns]
+            df.dropna(inplace=True)
+            for _, row in df.iterrows():
+                key, score = str(row[id_col]), float(row[score_col])
+                all_scores.append(score)
+                data_dict[key] = max(data_dict.get(key, 0.0), score)
+        except Exception as e:
+            print(f"    - Error loading score file {filepath}: {e}")
+    if all_scores:
+        scores_series = pd.Series(all_scores)
+        print(f"    - Statistical Summary for {file_type_name} Scores:")
+        summary = scores_series.describe().to_string().replace('\n', '\n      ')
+        print(f"      {summary}")
+    return data_dict
+
+# --- Main Dataset Preparation Function ---
+def prepare_dataset(config):
+    start_time = time.time()
+    
+    # --- 1. Setup Paths and Parameters from Config ---
+    PROJECT_ROOT = config['project_root']
+    DATA_ROOT = os.path.join(PROJECT_ROOT, config['data_folders']['main_dataset_folder'])
+    PREPARED_DATASET_DIR = os.path.join(DATA_ROOT, config['data_folders']['prepared_subfolder'])
+    os.makedirs(PREPARED_DATASET_DIR, exist_ok=True)
+    PARAMS = {**config['dataset_parameters'], **config['training_parameters']}
+
+    print("--- Starting Universal Dataset Preparation ---")
+    if PARAMS['focus_on_target_region']:
+        print(f"!!! MODE: Specialist. Focusing ONLY on {PARAMS['target_region_name']} region. !!!")
+    
+    # --- 2. Load All Data Sources Defined in Config ---
+    print("\nStep 1: Loading all data sources from config...")
+    data_sources = {}
+    for name, source in config['data_sources'].items():
+        path = os.path.join(DATA_ROOT, source['folder'], 'select')
+        if source['type'] == 'fasta':
+            data_sources[name] = load_data_from_fasta(path)
+        elif source['type'] == 'score':
+            data_sources[name] = load_scores(path, source['id_col'], source['score_col'], name.capitalize())
+    
+    # --- 3. Process the Primary Molecule ---
+    print("\nStep 2: Pre-processing the primary molecule...")
+    primary_molecule_type = config['experiment_setup']['primary_molecule']
+    primary_molecules_raw = data_sources[primary_molecule_type.lower()]
+    processor_func = PROCESSOR_MAP.get(primary_molecule_type)
+    if not processor_func:
+        print(f"Error: No processor found for molecule type '{primary_molecule_type}'. Check processors.py.")
+        return
+    
+    processing_args = [(item, PARAMS) for item in primary_molecules_raw.items()]
+    with Pool(processes=cpu_count()) as pool:
+        results = pool.map(processor_func, processing_args)
+
+    processed_molecules, reject_log = [], {"length": 0, "gc": 0, "structure": 0}
+    for result in results:
+        if isinstance(result, dict): processed_molecules.append(result)
+        else: _, reason = result; reject_log[reason.split('_')[1]] += 1
+    print(f"  - {len(processed_molecules)} primary molecules passed filters. Rejects: {reject_log}")
+    
+    # --- 4. Augment with Affinity/Conservation Scores ---
+    for molecule_data in processed_molecules:
+        molecule_id = molecule_data['id']
+        molecule_data['affinity'] = data_sources.get('affinity', {}).get(molecule_id, 0.0)
+        # Add more score lookups here if needed
+
+    # --- 5. Prepare Target and Competitor Molecules ---
+    target_type = config['experiment_setup']['target_molecule']
+    competitor_type = config['experiment_setup']['competitor_molecule']
+    all_targets_full = data_sources[f"{target_type.lower()}_target"]
+    all_competitors = data_sources[f"{competitor_type.lower()}_competitor"]
+
+    all_targets_processed = {}
+    if PARAMS['focus_on_target_region']:
+        region_name, (start, end) = PARAMS['target_region_name'], PARAMS['target_region_slice']
+        for target_id, full_seq in all_targets_full.items():
+            if len(full_seq) >= end:
+                all_targets_processed[f"{target_id}_{region_name}"] = full_seq[start:end]
+    else:
+        all_targets_processed = all_targets_full
+
+    if not all_targets_processed:
+        print("\nCRITICAL ERROR: No target sequences remained after filtering.")
+        return
+
+    null_competitor = ('NO_COMPETITOR', '')
+    all_competitors_augmented = list(all_competitors.items()) + [null_competitor]
+    
+    # --- 6. Generate and Stream Final Dataset to Parquet ---
+    print("\nStep 3: Generating and streaming combinations to Parquet...")
+    output_filename = f"Prepared_Dataset_{int(time.time())}.parquet"
+    output_path = os.path.join(PREPARED_DATASET_DIR, output_filename)
+    if os.path.exists(output_path): os.remove(output_path)
+    
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    batch, total_rows, parquet_writer = [], 0, None
+    combinations = product(processed_molecules, all_targets_processed.items(), all_competitors_augmented)
+
+    for primary_data, (target_id, target_seq), (competitor_id, competitor_seq) in combinations:
+        row = {
+            'primary_id': primary_data['id'], 'primary_sequence': primary_data['sequence'],
+            'target_id': target_id, 'target_sequence': target_seq,
+            'competitor_id': competitor_id, 'competitor_sequence': competitor_seq,
+            **{k: v for k, v in primary_data.items() if k not in ['id', 'sequence']} # Add other processed features
+        }
+        batch.append(row)
+
+        if len(batch) >= PARAMS['batch_size']:
+            df_batch = pd.DataFrame(batch)
+            table = pa.Table.from_pandas(df_batch, preserve_index=False)
+            if parquet_writer is None:
+                parquet_writer = pq.ParquetWriter(output_path, table.schema)
+            parquet_writer.write_table(table)
+            total_rows += len(batch)
+            print(f"  ... {total_rows} rows written")
+            batch = []
+
+    if batch:
+        df_batch = pd.DataFrame(batch)
+        table = pa.Table.from_pandas(df_batch, preserve_index=False)
+        if parquet_writer is None:
+            parquet_writer = pq.ParquetWriter(output_path, table.schema)
+        parquet_writer.write_table(table)
+        total_rows += len(batch)
+
+    if parquet_writer: parquet_writer.close()
+    
+    end_time = time.time()
+    print("\n--- Dataset Preparation Summary ---")
+    print(f"Total combinations generated (rows): {total_rows}")
+    print(f"Dataset saved successfully to {output_path}")
+    print(f"Total time taken: {end_time - start_time:.2f} seconds")
+
+if __name__ == "__main__":
+    # Load the configuration file first
+    config = load_config('../config.json')
+    # Then, pass the loaded config to the function
+    prepare_dataset(config)
