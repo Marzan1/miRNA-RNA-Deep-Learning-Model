@@ -10,17 +10,25 @@ from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 # --- Configuration ---
-# (This section will be replaced by the config.json loader in the final refactor)
 DATASET_ROOT_FOLDER = r"E:\1. miRNA-RNA-Deep-Learning-Model\dataset"
 PREPARED_DATASET_FOLDER_NAME = "prepared_dataset"
-# Find the latest Parquet file automatically
-prepared_files = [f for f in os.listdir(os.path.join(DATASET_ROOT_FOLDER, PREPARED_DATASET_FOLDER_NAME)) if f.endswith('.parquet')]
-if not prepared_files:
-    raise FileNotFoundError("No Parquet files found in the prepared_dataset folder.")
-PREPARED_DATASET_FILENAME = sorted(prepared_files)[-1] # Get the most recent one
-PREPARED_DATASET_PATH = os.path.join(DATASET_ROOT_FOLDER, PREPARED_DATASET_FOLDER_NAME, PREPARED_DATASET_FILENAME)
 OUTPUT_DL_FOLDER = os.path.join(DATASET_ROOT_FOLDER, "processed_for_dl")
 os.makedirs(OUTPUT_DL_FOLDER, exist_ok=True)
+
+# --- Auto-detect the most recent Parquet file ---
+prepared_folder_path = os.path.join(DATASET_ROOT_FOLDER, PREPARED_DATASET_FOLDER_NAME)
+try:
+    # Find all Parquet files in the directory
+    prepared_files = [f for f in os.listdir(prepared_folder_path) if f.endswith('.parquet')]
+    if not prepared_files:
+        raise FileNotFoundError
+    # Sort them (which works for timestamps) and get the latest one
+    PREPARED_DATASET_FILENAME = sorted(prepared_files)[-1]
+    PREPARED_DATASET_PATH = os.path.join(prepared_folder_path, PREPARED_DATASET_FILENAME)
+except FileNotFoundError:
+    print(f"FATAL ERROR: No .parquet files found in '{prepared_folder_path}'. Please run Stage 1 first.")
+    exit()
+# --- END of new auto-detection ---
 
 # --- Constants ---
 MAX_MIRNA_LEN, MAX_RRE_LEN, MAX_REV_LEN = 80, 150, 200 # These should match your model architecture plans
