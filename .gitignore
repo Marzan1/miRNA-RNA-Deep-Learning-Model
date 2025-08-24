@@ -17,8 +17,6 @@ Thumbs.db
 # IDE files (e.g., VS Code)
 .vscode/
 
-# --- NEW: Ignore all generated outputs and large data ---
-
 # Ignore the main dataset folder (host this on Zenodo/Figshare)
 dataset/
 
