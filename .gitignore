@@ -17,5 +17,8 @@ Thumbs.db
 # Project Data (ignored)
 dataset/
 
+#additionally ignored files
+additional/
+
 # IDE files (e.g., VS Code)
 .vscode/
