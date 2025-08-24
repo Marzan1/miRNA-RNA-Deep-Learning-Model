@@ -14,11 +14,22 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# Project Data (ignored)
-dataset/
-
-#additionally ignored files
-additional/
-
 # IDE files (e.g., VS Code)
 .vscode/
+
+# --- NEW: Ignore all generated outputs and large data ---
+
+# Ignore the main dataset folder (host this on Zenodo/Figshare)
+dataset/
+
+# Ignore temporary/additional data
+additional/
+
+# Ignore all generated model files and training history
+models/
+
+# Ignore all prediction input files and output results
+prediction/
+
+# Ignore all TensorFlow/Keras training logs
+logs/
