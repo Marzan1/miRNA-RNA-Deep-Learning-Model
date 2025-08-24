@@ -1,4 +1,4 @@
-# 1_dataset_preparation.py (Universal, Config-Driven Framework)
+# 1_dataset_preparation.py (Definitive, Final Version)
 import os
 import pandas as pd
 from Bio import SeqIO
@@ -9,27 +9,45 @@ import json
 from itertools import product
 from multiprocessing import Pool, cpu_count
 import time
-# --- CHANGE: Import the new processors ---
+
+# --- Import the new processors library ---
 from molecule_processors import PROCESSOR_MAP
 
 # --- Configuration Loader ---
-def load_config(config_path='../config.json'):
-    """Loads the configuration from a JSON file in the project root."""
+def load_config(config_path=None):
+    """
+    Loads the configuration from a JSON file.
+    If no path is given, it automatically finds 'config.json' in the project root.
+    """
+    if config_path is None:
+        # Build the path dynamically relative to this script's location
+        script_dir = os.path.dirname(os.path.realpath(__file__))
+        # Assumes the script is in a /codes folder and config.json is one level up
+        project_root = os.path.dirname(script_dir) 
+        config_path = os.path.join(project_root, 'config.json')
+    
+    print(f"--- Loading configuration from: {config_path} ---")
     try:
         with open(config_path, 'r') as f:
             return json.load(f)
     except FileNotFoundError:
-        print(f"FATAL: Configuration file not found at '{config_path}'. Please create it in the project root.")
+        print(f"FATAL: Configuration file not found at '{config_path}'.")
+        print("Please ensure 'config.json' is in the project's root directory.")
         exit()
 
 # --- Helper Functions ---
 def _get_files_in_folder(folder_path, extensions):
-    if not os.path.exists(folder_path): return []
+    """Gets all files with specified extensions from a folder."""
+    if not os.path.exists(folder_path):
+        return []
     return [os.path.join(folder_path, f) for f in os.listdir(folder_path) if any(f.lower().endswith(ext) for ext in extensions)]
 
 def load_data_from_fasta(folder_path):
+    """Loads all sequences from all FASTA files in a directory."""
     data_dict = {}
-    for filepath in _get_files_in_folder(folder_path, ['.fasta', '.fa', '.txt']):
+    file_paths = _get_files_in_folder(folder_path, ['.fasta', '.fa', '.txt'])
+    if not file_paths: return data_dict
+    for filepath in file_paths:
         try:
             for record in SeqIO.parse(filepath, "fasta"):
                 data_dict[record.id] = str(record.seq).replace('T', 'U')
@@ -37,8 +55,8 @@ def load_data_from_fasta(folder_path):
     return data_dict
 
 def load_scores(folder_path, id_col, score_col, file_type_name):
-    data_dict = {}
-    all_scores = []
+    """Loads and inspects score files from a directory."""
+    data_dict, all_scores = {}, []
     print(f"  Scanning {file_type_name} files in '{folder_path}'...")
     for filepath in _get_files_in_folder(folder_path, ['.txt', '.tsv', '.csv']):
         try:
@@ -72,30 +90,28 @@ def prepare_dataset(config):
     DATA_ROOT = os.path.join(PROJECT_ROOT, config['data_folders']['main_dataset_folder'])
     PREPARED_DATASET_DIR = os.path.join(DATA_ROOT, config['data_folders']['prepared_subfolder'])
     os.makedirs(PREPARED_DATASET_DIR, exist_ok=True)
-    PARAMS = {**config['dataset_parameters'], **config['training_parameters']}
+    PARAMS = {**config['processing_parameters'], **config['training_parameters']}
 
     print("--- Starting Universal Dataset Preparation ---")
-    if PARAMS['focus_on_target_region']:
-        print(f"!!! MODE: Specialist. Focusing ONLY on {PARAMS['target_region_name']} region. !!!")
     
     # --- 2. Load All Data Sources Defined in Config ---
     print("\nStep 1: Loading all data sources from config...")
     data_sources = {}
-    for name, source in config['data_sources'].items():
-        path = os.path.join(DATA_ROOT, source['folder'], 'select')
-        if source['type'] == 'fasta':
+    for name, source_info in config['data_sources'].items():
+        # --- Skip any keys that start with an underscore (like '_comment') ---
+        if name.startswith('_'):
+            continue
+        path = os.path.join(DATA_ROOT, source_info['folder'], 'select')
+        if source_info['type'] == 'fasta':
             data_sources[name] = load_data_from_fasta(path)
-        elif source['type'] == 'score':
-            data_sources[name] = load_scores(path, source['id_col'], source['score_col'], name.capitalize())
+        elif source_info['type'] == 'score':
+            data_sources[name] = load_scores(path, source_info['id_col'], source_info['score_col'], name.capitalize())
     
     # --- 3. Process the Primary Molecule ---
     print("\nStep 2: Pre-processing the primary molecule...")
     primary_molecule_type = config['experiment_setup']['primary_molecule']
     primary_molecules_raw = data_sources[primary_molecule_type.lower()]
     processor_func = PROCESSOR_MAP.get(primary_molecule_type)
-    if not processor_func:
-        print(f"Error: No processor found for molecule type '{primary_molecule_type}'. Check processors.py.")
-        return
     
     processing_args = [(item, PARAMS) for item in primary_molecules_raw.items()]
     with Pool(processes=cpu_count()) as pool:
@@ -111,7 +127,9 @@ def prepare_dataset(config):
     for molecule_data in processed_molecules:
         molecule_id = molecule_data['id']
         molecule_data['affinity'] = data_sources.get('affinity', {}).get(molecule_id, 0.0)
-        # Add more score lookups here if needed
+        match = re.search(r"mir-\d+[a-z]?", molecule_id.lower())
+        mirna_family = match.group(0) if match else molecule_id.lower()
+        molecule_data['conservation'] = data_sources.get('conservation', {}).get(mirna_family, 0.0)
 
     # --- 5. Prepare Target and Competitor Molecules ---
     target_type = config['experiment_setup']['target_molecule']
@@ -152,7 +170,7 @@ def prepare_dataset(config):
             'primary_id': primary_data['id'], 'primary_sequence': primary_data['sequence'],
             'target_id': target_id, 'target_sequence': target_seq,
             'competitor_id': competitor_id, 'competitor_sequence': competitor_seq,
-            **{k: v for k, v in primary_data.items() if k not in ['id', 'sequence']} # Add other processed features
+            **{k: v for k, v in primary_data.items() if k not in ['id', 'sequence']}
         }
         batch.append(row)
 
@@ -183,7 +201,5 @@ def prepare_dataset(config):
     print(f"Total time taken: {end_time - start_time:.2f} seconds")
 
 if __name__ == "__main__":
-    # Load the configuration file first
-    config = load_config('../config.json')
-    # Then, pass the loaded config to the function
+    config = load_config()
     prepare_dataset(config)
