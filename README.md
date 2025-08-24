@@ -157,4 +157,4 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ## Contact
 
-[Abdullah Al Marzan / Marzan1] - [marzansust16@gmail.com]
+[Abdullah Al Marzan / aamarzan] - [marzansust16@gmail.com]
