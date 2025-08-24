@@ -57,7 +57,7 @@ This project requires Python 3.9+ and the ViennaRNA package.
 
 1.  **Clone the Repository:**
     ```bash
-    git clone [https://github.com/YOUR_USERNAME/YOUR_REPOSITORY.git](https://github.com/YOUR_USERNAME/YOUR_REPOSITORY.git)
+    git clone https://github.com/aamarzan/miRNA-RNA-Deep-Learning-Model.git
     cd YOUR_REPOSITORY
     ```
 
@@ -151,4 +151,4 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ## Contact
 
-[Abdullah Al Marzan / aamarzan] - [marzansust16@gmail.com]
+Abdullah Al Marzan - [aamarzan](https://github.com/aamarzan) - marzansust16@gmail.com
