@@ -1,0 +1,43 @@
+{
+  "project_root": "E:/1. miRNA-RNA-Deep-Learning-Model",
+
+  "data_folders": {
+    "main_dataset_folder": "dataset",
+    "prepared_subfolder": "prepared_dataset_outputs" 
+  },
+  
+  "output_folders": {
+    "main_models_folder": "models",
+    "prediction_subfolder": "prediction",
+    "logs_subfolder": "logs"
+  },
+
+  "experiment_setup": {
+    "primary_molecule": "miRNA",
+    "target_molecule": "RNA",
+    "competitor_molecule": "RNA"
+  },
+
+  "data_sources": {
+    "miRNA": { "folder": "miRNA_dataset", "type": "fasta" },
+    "RNA_target": { "folder": "target", "type": "fasta" },
+    "RNA_competitor": { "folder": "competitor", "type": "fasta" },
+    "affinity": { "folder": "affinity_score", "type": "score", "id_col": "mirna", "score_col": "interaction_score" },
+    "conservation": { "folder": "conservation_score", "type": "score", "id_col": "mir family", "score_col": "pct" }
+  },
+
+  "processing_parameters": {
+    "focus_on_target_region": true,
+    "target_region_name": "StemIIB",
+    "target_region_slice": [39, 80],
+    "min_seq_len": 20,
+    "max_seq_len": 70,
+    "min_gc_content": 0.30,
+    "max_gc_content": 0.80
+  },
+  
+  "training_parameters": {
+    "task_type": "regression",
+    "batch_size": 10000
+  }
+}
