@@ -31,3 +31,6 @@ prediction/
 
 # Ignore all TensorFlow/Keras training logs
 logs/
+
+# Ignore RNAfold graphical output
+rna.ps
