@@ -132,13 +132,7 @@ All outputs will be saved to a timestamped folder inside `models/`.
 
 The full dataset used for this research is not stored on GitHub due to its large size. A small `dataset_sample/` is provided to ensure the code is runnable out-of-the-box.
 
-*(This is the professional way to handle it before publication. Choose one of the two options below for your README.)*
-
-**Option A (If you plan to publish soon):**
-> The complete dataset and the final trained model weights used in our study will be made publicly available on a permanent data repository (Zenodo) upon the acceptance of our manuscript for publication.
-
-**Option B (If you want to share the data now):**
-> The complete dataset and the final trained model weights can be downloaded from Zenodo under the following DOI: [Link to Zenodo DOI will go here].
+The complete dataset and the final trained model weights used in our study will be made publicly available on a permanent data repository (Zenodo) upon the acceptance of our manuscript for publication.
 
 ---
 
