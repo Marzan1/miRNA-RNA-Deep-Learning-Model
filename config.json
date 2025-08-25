@@ -72,6 +72,10 @@
             "lstm_units": 32,
             "attention_heads": 4
         },
+        "gnn_architecture": {
+            "_comment": "Hyperparameters for the GNN branches.",
+            "gnn_units": 32
+        },
         "advanced_training": {
             "use_sample_weighting": true,
             "sample_weight_alpha": 15.0,
