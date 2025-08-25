@@ -28,30 +28,27 @@
         "conservation": {"folder": "conservation_score", "type": "score", "id_col": "mir family", "score_col": "pct"}
     },
     "processing_parameters": {
-    "_comment": "Parameters for Stage 1 (1_dataset_preparation.py).",
-    "enable_pdb_processing": false,
-    "focus_on_target_region": true,
-    "target_region_name": "StemIIB",
-    "target_region_slice": [
-        90,
-        150
-    ],
-    "min_mirna_len": 10,
-    "max_mirna_len": 150,
-    "min_gc_content": 0.20,
-    "max_gc_content": 0.90
+        "_comment": "Parameters for Stage 1 (s1_prepare_dataset.py). PDB processing can be enabled if needed.",
+        "enable_pdb_processing": false,
+        "focus_on_target_region": true,
+        "target_region_name": "StemIIB",
+        "target_region_slice": [90, 150],
+        "min_mirna_len": 10,
+        "max_mirna_len": 150,
+        "min_gc_content": 0.20,
+        "max_gc_content": 0.90
     },
     "data_processing": {
-        "_comment": "Parameters for Stage 2 (2_deep_learning_data_preparation.py).",
+        "_comment": "Parameters for Stage 2 (s2_prepare_dl_data.py).",
         "batch_size_parquet": 50000
     },
     "dataset_splitting": {
-    "_comment": "Parameters for Stage 1b (1b_split_dataset.py).",
-    "number_of_parts": 100,
-    "input_filename": ""
+        "_comment": "Parameters for Stage 1b (s1b_split_dataset.py).",
+        "number_of_parts": 100,
+        "input_filename": ""
     },
     "training_parameters": {
-        "_comment": "Parameters for Stage 3 (3_model_building.py).",
+        "_comment": "Parameters for Stage 3 (s3_build_model.py).",
         "task_type": "regression",
         "batch_size": 1024,
         "epochs": 100,
@@ -80,12 +77,38 @@
             "use_sample_weighting": true,
             "sample_weight_alpha": 15.0,
             "use_custom_loss": true,
-            "custom_loss_pos_weight": 10.0
+            "custom_loss_pos_weight": 10.0,
+            "early_stopping_patience": 5
         }
     },
     "prediction_parameters": {
-        "_comment": "Parameters for Stage 4 (4_find_best_mirnas.py).",
+        "_comment": "Parameters for Stage 4 (s4_predict.py).",
+        "model_to_use": "best_supreme_model.keras",
+        "output_filename": "ranked_predictions.parquet",
+
+        "input_folders": {
+            "_comment": "Place FASTA files in these subfolders inside the 'prediction' directory.",
+            "primary": "primary_to_rank",
+            "target": "target_to_predict",
+            "competitor": "competitor_to_compare"
+        },
+        
         "use_prediction_region_slice": false,
-        "prediction_target_region_slice": [90, 150]
+        "prediction_target_region_slice": [ 90, 150 ]
+    },
+    "incremental_training": {
+        "_comment": "Parameters for Stage 3b (s3b_incremental_training.py).",
+        "new_data_subfolder": "processed_for_dl",
+        "existing_model_name": "best_supreme_model.keras",
+        "new_model_name": "best_supreme_model_2.keras",
+        "fine_tune_learning_rate": 5e-5,
+        "fine_tune_epochs": 30
+    },
+    "evaluation_parameters": {
+    "_comment": "Parameters for Stage 5 (s5_evaluate.py).",
+    "model_to_evaluate": "best_supreme_model.keras",
+    "history_to_load": "history_supreme_model.json",
+    "prediction_batch_size": 4096,
+    "output_folder_prefix": "evaluation_plots"
     }
 }

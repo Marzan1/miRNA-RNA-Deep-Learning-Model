@@ -103,7 +103,10 @@ def process_rna_universal(args):
     Universal processor for any RNA-like molecule.
     Calculates GC, 1D structure, and 2D graph structure (for GNN).
     """
-    (molecule_id, sequence), params = args
+    # <<< FIX: Unpack all three arguments (molecule, params, and role) instead of just two >>>
+    (molecule_id, sequence), params, role = args
+    config = load_config()
+
     # --- Feature Generation ---
     gc = calculate_gc_content(sequence)
     structural_features_1d = predict_rna_structure_1d(sequence)

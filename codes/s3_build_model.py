@@ -156,8 +156,9 @@ if __name__ == "__main__":
     np.random.shuffle(train_indices)
 
     print("\nStep 2: Creating data generators...")
-    train_generator = DataGenerator(data_path, params['batch_size'], train_indices, 'X_train_', params['advanced_training'])
-    test_generator = DataGenerator(data_path, params['batch_size'], test_indices, 'X_test_', params['advanced_training'])
+    adv_params = params['advanced_training']
+    train_generator = DataGenerator(data_path, params['batch_size'], train_indices, 'X_train_', adv_params)
+    test_generator = DataGenerator(data_path, params['batch_size'], test_indices, 'X_test_', adv_params)
 
     print("\nStep 3: Building the 'Supreme' regression model...")
     sample_X, _, _ = train_generator[0]
@@ -181,7 +182,7 @@ if __name__ == "__main__":
     
     callbacks = [
         ModelCheckpoint(filepath=model_filepath, save_best_only=True, monitor='val_loss', mode='min', verbose=1),
-        EarlyStopping(monitor='val_loss', patience=10, mode='min', restore_best_weights=True),
+        EarlyStopping(monitor='val_loss', patience=adv_params.get('early_stopping_patience', 10), mode='min', restore_best_weights=True),
         ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=1e-6),
         TensorBoard(log_dir=log_dir)
     ]
