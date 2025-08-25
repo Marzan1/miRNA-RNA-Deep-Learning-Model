@@ -1,4 +1,4 @@
-# 2_deep_learning_data_preparation.py (Corrected Config-Driven, Memory-Safe Version)
+# 2_deep_learning_data_preparation.py (Fully Generic, Optimized Version)
 import os
 import pandas as pd
 import numpy as np
@@ -12,10 +12,7 @@ import pyarrow.parquet as pq
 
 # --- Configuration Loader ---
 def load_config(config_path=None):
-    """
-    Loads the configuration from a JSON file.
-    If no path is given, it automatically finds 'config.json' in the project root.
-    """
+    """Loads the configuration from a JSON file."""
     if config_path is None:
         script_dir = os.path.dirname(os.path.realpath(__file__))
         project_root = os.path.dirname(script_dir) 
@@ -35,7 +32,8 @@ def one_hot_encode_sequence(sequence, max_len, nucleotide_map):
     encoded_seq = np.zeros((max_len, len(nucleotide_map)), dtype=np.float32)
     if not isinstance(sequence, str): sequence = ""
     for i, char in enumerate(sequence[:max_len]):
-        encoded_seq[i, nucleotide_map.get(char.upper(), len(nucleotide_map) - 1)] = 1 # Default to 'N'
+        # Default to the last index (for 'N' or other characters)
+        encoded_seq[i, nucleotide_map.get(char.upper(), len(nucleotide_map) - 1)] = 1
     return encoded_seq
 
 # --- Main Processing Function ---
@@ -45,7 +43,7 @@ def main():
     
     # --- Step 1: Load Config and Define Paths ---
     config = load_config()
-    params = {**config['processing_parameters'], **config['training_parameters']}
+    params = {**config['processing_parameters'], **config['training_parameters'], **config['data_processing']}
     
     project_root = config['project_root']
     prepared_folder = os.path.join(project_root, config['data_folders']['main_dataset_folder'], config['data_folders']['prepared_subfolder'])
@@ -56,8 +54,7 @@ def main():
     print(f"\nScanning for datasets in: {prepared_folder}")
     try:
         prepared_files = [f for f in os.listdir(prepared_folder) if f.endswith('.parquet')]
-        if not prepared_files:
-            raise FileNotFoundError
+        if not prepared_files: raise FileNotFoundError
         prepared_dataset_filename = sorted(prepared_files)[-1]
         prepared_dataset_path = os.path.join(prepared_folder, prepared_dataset_filename)
         print(f"  - Using latest dataset: {prepared_dataset_filename}")
@@ -67,7 +64,6 @@ def main():
 
     # --- Step 3: Fit Scaler in a Memory-Safe Way ---
     print("\nStep 1: Fitting the scaler on numerical features...")
-    # This pass only loads the numerical columns to minimize RAM usage
     numerical_features = params.get('numerical_features', ['gc_content', 'dg', 'conservation'])
     try:
         numerical_df = pd.read_parquet(prepared_dataset_path, columns=numerical_features)
@@ -75,7 +71,7 @@ def main():
         scaler.fit(numerical_df)
         joblib.dump(scaler, os.path.join(output_dl_folder, 'minmax_scaler.pkl'))
         print(f"  - Scaler fitted on {len(numerical_df)} rows and saved.")
-        del numerical_df # Free memory
+        del numerical_df
     except Exception as e:
         print(f"  - FATAL ERROR: Could not read numerical features to fit scaler: {e}")
         exit()
@@ -83,30 +79,39 @@ def main():
     # --- Step 4: Create Train-Test Split based on Indices ---
     print("\nStep 2: Creating train-test split indices...")
     parquet_file = pq.ParquetFile(prepared_dataset_path)
-    # <<< FIX: Access the number of rows from the metadata attribute
     num_rows = parquet_file.metadata.num_rows
     indices = np.arange(num_rows)
     train_indices, test_indices = train_test_split(indices, test_size=params.get('test_split_ratio', 0.2), random_state=42)
     print(f"  - Total samples: {num_rows}")
     print(f"  - Training samples: {len(train_indices)}, Testing samples: {len(test_indices)}")
     
-    # Create a lookup array for efficient assignment
-    sample_assignment = np.empty(num_rows, dtype='U5') # 'train' or 'test'
+    sample_assignment = np.empty(num_rows, dtype='U5')
     sample_assignment[train_indices] = 'train'
     sample_assignment[test_indices] = 'test'
-    del indices, train_indices, test_indices # Free memory
+    del indices, train_indices, test_indices
 
     # --- Step 5: Process and Save Datasets in Batches ---
     print("\nStep 3: Processing and saving datasets in memory-safe batches...")
     
-    # Define constants from config
-    max_primary_len = params.get('max_mirna_len', 80)
-    max_target_len = params.get('max_rre_len', 150)
-    max_competitor_len = params.get('max_rev_len', 200)
+    # <<< CHANGE: Dynamically get molecule types and padding lengths >>>
+    # This logic makes the script fully generic and removes hard-coding.
+    setup = config['experiment_setup']
+    pad_params = params['sequence_padding']
+    
+    primary_type = setup['primary_molecule'].lower()
+    target_type = setup['target_molecule'].lower()
+    competitor_type = setup['competitor_molecule'].lower()
+
+    # Flexible key fetching: checks for specific key (e.g., 'max_mirna_len') first, then generic key ('max_primary_len')
+    max_primary_len = pad_params.get(f'max_{primary_type}_len', pad_params.get('max_primary_len', 80))
+    max_target_len = pad_params.get(f'max_{target_type}_len', pad_params.get('max_target_len', 150))
+    max_competitor_len = pad_params.get(f'max_{competitor_type}_len', pad_params.get('max_competitor_len', 200))
+    
+    print(f"  - Using padding lengths -> Primary: {max_primary_len}, Target: {max_target_len}, Competitor: {max_competitor_len}")
+
     target_feature = params.get('target_feature', 'affinity')
     nucleotide_map = {'A': 0, 'U': 1, 'G': 2, 'C': 3, 'N': 4}
     
-    # Helper to process a pandas DataFrame chunk
     def process_chunk(df_chunk, scaler_obj):
         y = df_chunk[target_feature].values.astype(np.float32)
         X = {
@@ -118,20 +123,22 @@ def main():
         }
         return X, y
 
-    # Use iter_batches for memory efficiency
-    batch_iterator = parquet_file.iter_batches(batch_size=params.get('batch_size', 10000))
+    # <<< CHANGE: Use optimized batch size from config for faster processing on your hardware >>>
+    batch_size = params.get('batch_size_parquet', 50000)
+    batch_iterator = parquet_file.iter_batches(batch_size=batch_size)
     
-    # Use lists to accumulate results before saving
-    X_train_batches, y_train_batches = {key: [] for key in process_chunk(next(batch_iterator).to_pandas(), scaler)[0]}, []
+    # Initialize lists for accumulating results
+    first_batch_df = next(batch_iterator).to_pandas()
+    X_train_batches, y_train_batches = {key: [] for key in process_chunk(first_batch_df, scaler)[0]}, []
     X_test_batches, y_test_batches = {key: [] for key in X_train_batches}, []
     
-    # Reset iterator and process all batches
-    batch_iterator = parquet_file.iter_batches(batch_size=params.get('batch_size', 10000))
-    processed_rows = 0
+    # Process the first batch now that it's been used for initialization
+    all_batches = [first_batch_df]
     for batch in batch_iterator:
-        df = batch.to_pandas()
-        
-        # Split dataframe based on pre-calculated indices
+        all_batches.append(batch.to_pandas())
+
+    processed_rows = 0
+    for df in all_batches:
         batch_indices = np.arange(processed_rows, processed_rows + len(df))
         assignments = sample_assignment[batch_indices]
         
@@ -154,7 +161,6 @@ def main():
     # --- Step 6: Finalize and Save Arrays ---
     print("\n\nStep 4: Concatenating and saving final NumPy arrays...")
     
-    # Save training data
     if y_train_batches:
         y_train_final = np.concatenate(y_train_batches)
         np.save(os.path.join(output_dl_folder, 'y_train.npy'), y_train_final)
@@ -163,7 +169,6 @@ def main():
             np.save(os.path.join(output_dl_folder, f'X_train_{key}.npy'), X_train_final)
         print(f"  - Saved {len(y_train_final)} training samples.")
 
-    # Save test data
     if y_test_batches:
         y_test_final = np.concatenate(y_test_batches)
         np.save(os.path.join(output_dl_folder, 'y_test.npy'), y_test_final)

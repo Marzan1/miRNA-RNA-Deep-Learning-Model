@@ -1,19 +1,32 @@
-# codes/processors.py
-import subprocess
+# codes/processors.py (With Development Switch for DSSR)
+import os
 import re
 import json
+import numpy as np
+import subprocess
+
+# --- Configuration Loader ---
+def load_config(config_path=None):
+    if config_path is None:
+        script_dir = os.path.dirname(os.path.realpath(__file__))
+        project_root = os.path.dirname(script_dir) 
+        config_path = os.path.join(project_root, 'config.json')
+    try:
+        with open(config_path, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
 
 # --- Feature Calculation Functions ---
 def calculate_gc_content(sequence):
     """Calculates the GC content of a sequence."""
     if not sequence: return 0.0
-    gc_count = sequence.upper().count('G') + sequence.upper().count('C')
-    return gc_count / len(sequence)
+    return (sequence.upper().count('G') + sequence.upper().count('C')) / len(sequence)
 
-def predict_rna_structure(sequence):
-    """Calculates 2D structure and dG for an RNA sequence using RNAfold."""
+def predict_rna_structure_1d(sequence):
+    """Calculates 1D structure vector and dG for an RNA sequence using RNAfold."""
     try:
-        result = subprocess.run(['RNAfold'], input=sequence, capture_output=True, text=True, check=True, encoding='utf-8', timeout=30)
+        result = subprocess.run(['RNAfold'], input=sequence, text=True, capture_output=True, check=True, encoding='utf-8', timeout=30)
         output_lines = result.stdout.strip().split('\n')
         if len(output_lines) >= 2:
             struct_line = output_lines[1]
@@ -22,48 +35,100 @@ def predict_rna_structure(sequence):
             dg = float(match.group(0)) if match else 0.0
             encoded_structure = [({'.': 0, '(': 1, ')': -1}).get(c, 0) for c in structure]
             return {'structure_vector': json.dumps(encoded_structure), 'dg': dg}
-        return None
     except Exception:
-        return None
+        pass
+    return None
 
-# --- Molecule Processors ---
-# Each function takes a molecule tuple (id, seq) and a params dictionary.
-# It returns a dictionary of processed features or a tuple indicating rejection.
-def process_mirna(args):
-    """Universal processor for miRNA-type molecules."""
-    (mirna_id, mirna_seq), params = args
+def _parse_dot_bracket_to_adjacency(dbn_structure):
+    """Converts a dot-bracket string to a binary adjacency matrix for GNNs."""
+    seq_len = len(dbn_structure)
+    adjacency_matrix = np.zeros((seq_len, seq_len), dtype=int)
+    stack = []
+    for i, char in enumerate(dbn_structure):
+        if char == '(':
+            stack.append(i)
+        elif char == ')':
+            if stack:
+                j = stack.pop()
+                adjacency_matrix[i, j] = 1
+                adjacency_matrix[j, i] = 1
+    # Add connections for the sequence backbone
+    for i in range(seq_len - 1):
+        adjacency_matrix[i, i + 1] = 1
+        adjacency_matrix[i + 1, i] = 1
+    return adjacency_matrix
+
+def predict_graph_structure(molecule_id, sequence):
+    """
+    Generates a graph (adjacency matrix) for a molecule.
+    1. If enabled, checks config for a PDB file and processes it with DSSR.
+    2. Falls back to RNAfold prediction if PDB processing is disabled or fails.
+    """
+    config = load_config()
     
-    if not (params['min_mirna_len'] <= len(mirna_seq) <= params['max_mirna_len']):
-        return (mirna_id, "reject_length")
+    # <<< CHANGE: Added a check for the new "development switch" >>>
+    # Only try to process PDB files if the flag is set to true in config.json
+    use_pdb = config.get('processing_parameters', {}).get('enable_pdb_processing', False)
+
+    if use_pdb and 'structure_files' in config and molecule_id in config['structure_files']:
+        pdb_path = config['structure_files'][molecule_id]
+        if os.path.exists(pdb_path):
+            try:
+                # This block will only run if DSSR is installed AND the switch is on.
+                result = subprocess.run(['x3dna-dssr', f'--input={pdb_path}'],
+                                        capture_output=True, text=True, check=True, timeout=60)
+                match = re.search(r'secondary structure in dot-bracket notation\s*\n\s*(\S+)', result.stdout)
+                if match:
+                    dot_bracket_string = match.group(1)
+                    return _parse_dot_bracket_to_adjacency(dot_bracket_string)
+            except Exception as e:
+                print(f"  - WARNING: DSSR failed for {molecule_id}. Falling back to RNAfold. Error: {e}")
+                pass 
+
+    # Fallback to RNAfold prediction (this will be the default for the next 2 days)
+    try:
+        result = subprocess.run(['RNAfold'], input=sequence, text=True, capture_output=True, check=True, encoding='utf-8', timeout=30)
+        output_lines = result.stdout.strip().split('\n')
+        if len(output_lines) >= 2:
+            structure = output_lines[1].split(' ')[0]
+            return _parse_dot_bracket_to_adjacency(structure)
+    except Exception:
+        pass
+        
+    return None
+
+# --- Universal Molecule Processor ---
+def process_rna_universal(args):
+    """
+    Universal processor for any RNA-like molecule.
+    Calculates GC, 1D structure, and 2D graph structure (for GNN).
+    """
+    (molecule_id, sequence), params = args
+    # --- Feature Generation ---
+    gc = calculate_gc_content(sequence)
+    structural_features_1d = predict_rna_structure_1d(sequence)
     
-    gc = calculate_gc_content(mirna_seq)
-    if not (params['min_gc_content'] <= gc <= params['max_gc_content']):
-        return (mirna_id, "reject_gc")
+    if structural_features_1d is None:
+        return (molecule_id, "reject_structure_1d")
+
+    # --- GNN Feature Generation ---
+    adjacency_matrix = predict_graph_structure(molecule_id, sequence)
     
-    structural_features = predict_rna_structure(mirna_seq)
-    if structural_features is None:
-        return (mirna_id, "reject_structure")
-    
+    if adjacency_matrix is None:
+        seq_len = len(sequence)
+        adjacency_matrix = np.zeros((seq_len, seq_len), dtype=int)
+        
+    serialized_adjacency = json.dumps(adjacency_matrix.tolist())
+
     return {
-        'id': mirna_id,
-        'sequence': mirna_seq,
+        'id': molecule_id,
+        'sequence': sequence,
         'gc_content': gc,
-        **structural_features
+        **structural_features_1d,
+        'adjacency_matrix': serialized_adjacency
     }
 
-# --- FUTURE EXPANSION: ADD NEW PROCESSORS HERE ---
-# ACTION: In the future, a user can uncomment and implement this to add protein support.
-# def process_protein(args):
-#     """Universal processor for Protein-type molecules."""
-#     (protein_id, protein_seq), params = args
-#     # Add logic here for protein sequences (e.g., amino acid composition)
-#     return {
-#         'id': protein_id,
-#         'sequence': protein_seq
-#     }
-
-# This dictionary is the "plugin manager". It maps names from config.json to the functions above.
 PROCESSOR_MAP = {
-    "miRNA": process_mirna,
-    # "protein": process_protein, # A user would uncomment this line after creating the function
+    "miRNA": process_rna_universal,
+    "RNA": process_rna_universal,
 }

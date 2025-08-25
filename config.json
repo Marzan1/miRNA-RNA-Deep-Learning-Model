@@ -1,68 +1,82 @@
 {
-    "_comment_project": "This file is the central control panel for the entire data preparation pipeline. Edit the values below to configure your experiment.",
+    "_comment_project": "This file is the central control panel for the entire data preparation pipeline.",
     "project_root": "E:/1. miRNA-RNA-Deep-Learning-Model",
     "data_folders": {
-        "_comment": "Define the names of your data subfolders.",
+        "_comment": "Names of your data subfolders.",
         "main_dataset_folder": "dataset",
         "prepared_subfolder": "prepared_dataset",
         "processed_for_dl_subfolder": "processed_for_dl"
     },
     "output_folders": {
-        "_comment": "Define the names for generated output folders.",
+        "_comment": "Names for generated output folders.",
         "main_models_folder": "models",
         "prediction_subfolder": "prediction",
         "logs_subfolder": "logs"
     },
     "experiment_setup": {
-        "_comment": "Define the molecule types for this specific experiment. Options for processors are defined in 'processors.py'.",
+        "_comment": "Define the molecule types for this experiment.",
         "primary_molecule": "miRNA",
         "target_molecule": "RNA",
         "competitor_molecule": "RNA"
     },
     "data_sources": {
-        "_comment": "Map the experiment roles to the actual folder names and file types.",
-        "mirna": {
-            "folder": "miRNA_dataset",
-            "type": "fasta"
-        },
-        "rna_target": {
-            "folder": "target",
-            "type": "fasta"
-        },
-        "rna_competitor": {
-            "folder": "competitor",
-            "type": "fasta"
-        },
-        "affinity": {
-            "folder": "affinity_score",
-            "type": "score",
-            "id_col": "mirna",
-            "score_col": "interaction_score"
-        },
-        "conservation": {
-            "folder": "conservation_score",
-            "type": "score",
-            "id_col": "mir family",
-            "score_col": "pct"
-        }
+        "_comment": "Map experiment roles to actual folder names.",
+        "mirna": {"folder": "miRNA_dataset", "type": "fasta"},
+        "rna_target": {"folder": "target", "type": "fasta"},
+        "rna_competitor": {"folder": "competitor", "type": "fasta"},
+        "affinity": {"folder": "affinity_score", "type": "score", "id_col": "mirna", "score_col": "interaction_score"},
+        "conservation": {"folder": "conservation_score", "type": "score", "id_col": "mir family", "score_col": "pct"}
     },
     "processing_parameters": {
-        "_comment": "Parameters for filtering and processing molecules.",
-        "focus_on_target_region": true,
-        "target_region_name": "StemIIB",
-        "target_region_slice": [
-            90,
-            150
-        ],
-        "min_mirna_len": 10,
-        "max_mirna_len": 150,
-        "min_gc_content": 0.20,
-        "max_gc_content": 0.90
+    "_comment": "Parameters for Stage 1 (1_dataset_preparation.py).",
+    "enable_pdb_processing": false,
+    "focus_on_target_region": true,
+    "target_region_name": "StemIIB",
+    "target_region_slice": [
+        90,
+        150
+    ],
+    "min_mirna_len": 10,
+    "max_mirna_len": 150,
+    "min_gc_content": 0.20,
+    "max_gc_content": 0.90
+    },
+    "data_processing": {
+        "_comment": "Parameters for Stage 2 (2_deep_learning_data_preparation.py).",
+        "batch_size_parquet": 50000
     },
     "training_parameters": {
-        "_comment": "Parameters that will be used by the model training script.",
+        "_comment": "Parameters for Stage 3 (3_model_building.py).",
         "task_type": "regression",
-        "affinity_threshold": 0.4,
-        "batch_size": 10000
+        "batch_size": 256,
+        "epochs": 100,
+        "learning_rate": 0.0005,
+        "dropout_rate": 0.4,
+        "test_split_ratio": 0.2,
+        "target_feature": "affinity",
+        "numerical_features": ["gc_content", "dg", "conservation"],
+        "sequence_padding": {
+            "_comment": "These are the generic keys the scripts will use.",
+            "max_primary_len": 80,
+            "max_target_len": 150,
+            "max_competitor_len": 200
+        },
+        "model_architecture": {
+            "cnn_filters": 64,
+            "cnn_kernel_size": 7,
+            "lstm_units": 32,
+            "attention_heads": 4
+        },
+        "advanced_training": {
+            "use_sample_weighting": true,
+            "sample_weight_alpha": 15.0,
+            "use_custom_loss": true,
+            "custom_loss_pos_weight": 10.0
+        }
+    },
+    "prediction_parameters": {
+        "_comment": "Parameters for Stage 4 (4_find_best_mirnas.py).",
+        "use_prediction_region_slice": false,
+        "prediction_target_region_slice": [90, 150]
     }
 }
