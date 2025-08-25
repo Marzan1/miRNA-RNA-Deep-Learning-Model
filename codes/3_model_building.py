@@ -79,11 +79,14 @@ class DataGenerator(tf.keras.utils.Sequence):
         else:
             return X, y
 
-# --- (The rest of the script is the same as the last full version) ---
-
+# --- Custom Weighted Loss Function (Corrected for new TensorFlow/Keras version) ---
 def create_weighted_mse(pos_weight=5.0, threshold=0.1):
     def weighted_mse(y_true, y_pred):
-        mse = tf.keras.losses.mean_squared_error(y_true, y_pred)
+        # <<< FIX: Use the class-based MeanSquaredError as recommended by the error message >>>
+        mse_loss = tf.keras.losses.MeanSquaredError()
+        mse = mse_loss(y_true, y_pred)
+        
+        # Apply higher penalty for errors on high-affinity samples
         weights = tf.where(y_true >= threshold, pos_weight, 1.0)
         return mse * weights
     return weighted_mse
