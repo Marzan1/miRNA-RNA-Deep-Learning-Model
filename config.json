@@ -45,6 +45,11 @@
         "_comment": "Parameters for Stage 2 (2_deep_learning_data_preparation.py).",
         "batch_size_parquet": 50000
     },
+    "dataset_splitting": {
+    "_comment": "Parameters for Stage 1b (1b_split_dataset.py).",
+    "number_of_parts": 100,
+    "input_filename": ""
+    },
     "training_parameters": {
         "_comment": "Parameters for Stage 3 (3_model_building.py).",
         "task_type": "regression",
