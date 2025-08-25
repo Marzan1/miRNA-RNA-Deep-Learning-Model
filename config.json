@@ -47,7 +47,7 @@
     },
     "dataset_splitting": {
     "_comment": "Parameters for Stage 1b (1b_split_dataset.py).",
-    "number_of_parts": 100,
+    "number_of_parts": 10,
     "input_filename": ""
     },
     "training_parameters": {

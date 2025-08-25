@@ -27,7 +27,7 @@ def load_config(config_path=None):
         print(f"FATAL: Configuration file not found at '{config_path}'.")
         exit()
 
-# --- Custom Data Generator with Automatic Input Detection ---
+# --- Custom Data Generator with Automatic Input Detection (CORRECTED) ---
 class DataGenerator(tf.keras.utils.Sequence):
     def __init__(self, data_path, batch_size, indices, prefix, advanced_params):
         self.data_path = data_path
@@ -37,13 +37,11 @@ class DataGenerator(tf.keras.utils.Sequence):
         self.use_sample_weights = advanced_params.get('use_sample_weighting', False)
         self.weight_alpha = advanced_params.get('sample_weight_alpha', 10.0)
         
-        # <<< CHANGE: Dynamically find all available input .npy files >>>
         print(f"  - DataGenerator searching for inputs in: {data_path}")
         self.input_keys = []
         all_files = os.listdir(data_path)
         for f in all_files:
             if f.startswith(self.prefix) and f.endswith('.npy') and 'y_' not in f:
-                # Extract clean key like 'primary_sequence_input'
                 key = f.replace(self.prefix, '').replace('.npy', '')
                 self.input_keys.append(key)
         
@@ -51,9 +49,11 @@ class DataGenerator(tf.keras.utils.Sequence):
             raise FileNotFoundError("No input .npy files found for the generator.")
         print(f"  - Found {len(self.input_keys)} input sources: {self.input_keys}")
 
-        # Use memory-mapping for large datasets
         self.inputs = {key: np.load(os.path.join(data_path, f'{self.prefix}{key}.npy'), mmap_mode='r') for key in self.input_keys}
-        self.targets = np.load(os.path.join(data_path, f'{self.prefix.replace("X_", "y_")}y_train.npy' if 'train' in prefix else f'{self.prefix.replace("X_", "y_")}y_test.npy'), mmap_mode='r')
+        
+        # <<< FIX: Corrected the logic to generate the target filename >>>
+        target_filename = 'y_train.npy' if 'train' in self.prefix else 'y_test.npy'
+        self.targets = np.load(os.path.join(self.data_path, target_filename), mmap_mode='r')
 
     def __len__(self):
         return int(np.floor(len(self.indices) / self.batch_size))
@@ -159,10 +159,12 @@ if __name__ == "__main__":
     train_generator = DataGenerator(data_path, params['batch_size'], train_indices, 'X_train_', params['advanced_training'])
     test_generator = DataGenerator(data_path, params['batch_size'], test_indices, 'X_test_', params['advanced_training'])
 
+# --- Build and Compile the Model ---
     print("\nStep 3: Building the 'Supreme' regression model...")
-    sample_X, _ = train_generator[0]
+# <<< FIX: Unpack all three items returned by the generator >>>
+    sample_X, _, _ = train_generator[0] 
     input_shapes = {key: val.shape[1:] for key, val in sample_X.items()}
-    
+
     model = build_supreme_model(input_shapes, params)
     
     if params['advanced_training']['use_custom_loss']:
