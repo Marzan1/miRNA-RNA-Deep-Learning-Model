@@ -53,7 +53,7 @@
     "training_parameters": {
         "_comment": "Parameters for Stage 3 (3_model_building.py).",
         "task_type": "regression",
-        "batch_size": 512,
+        "batch_size": 1024,
         "epochs": 100,
         "learning_rate": 0.0005,
         "dropout_rate": 0.4,
